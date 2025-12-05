@@ -23,6 +23,31 @@ export interface GenericFsAdapterOptions {
 }
 
 /**
+ * Represents a file in the file system
+ */
+export interface FileNode {
+  type: 'file';
+  name: string;
+  size: number;
+}
+
+/**
+ * Represents a directory in the file system
+ */
+export interface DirectoryNode {
+  type: 'directory';
+  name: string;
+  children?: FileSystemNode[];
+  truncated?: boolean;
+  ignored?: boolean;
+}
+
+/**
+ * Union type for file system nodes
+ */
+export type FileSystemNode = FileNode | DirectoryNode;
+
+/**
  * File system adapter that scans a project root directory
  */
 export class GenericFsAdapter implements ContextSource {
@@ -57,7 +82,7 @@ export class GenericFsAdapter implements ContextSource {
   /**
    * Recursively scan directory structure
    */
-  private async scanDirectory(dirPath: string, depth: number): Promise<any> {
+  private async scanDirectory(dirPath: string, depth: number): Promise<FileSystemNode> {
     if (depth > this.maxDepth) {
       return { type: 'directory', name: path.basename(dirPath), truncated: true };
     }
@@ -83,7 +108,7 @@ export class GenericFsAdapter implements ContextSource {
     }
 
     const entries = await fs.promises.readdir(dirPath);
-    const children: any[] = [];
+    const children: FileSystemNode[] = [];
 
     for (const entry of entries) {
       if (this.shouldIgnore(entry)) {
@@ -111,6 +136,7 @@ export class GenericFsAdapter implements ContextSource {
    * Check if a path should be ignored
    */
   private shouldIgnore(name: string): boolean {
-    return this.ignorePatterns.some((pattern) => name.includes(pattern));
+    return this.ignorePatterns.some((pattern) => name === pattern);
   }
 }
+

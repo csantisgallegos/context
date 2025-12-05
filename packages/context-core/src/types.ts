@@ -36,5 +36,6 @@ export interface ContextData {
   /**
    * The actual context data
    */
-  data: any;
+  data: Record<string, unknown>;
 }
+

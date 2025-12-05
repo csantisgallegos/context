@@ -1,1 +1,1 @@
-export { GenericFsAdapter, GenericFsAdapterOptions } from './adapter';
+export { GenericFsAdapter, GenericFsAdapterOptions, FileNode, DirectoryNode, FileSystemNode } from './adapter';
