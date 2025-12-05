@@ -1,0 +1,30 @@
+{
+  "name": "@csantisgallegos/context-cli",
+  "version": "0.1.0",
+  "description": "CLI tool for context scanning",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "context": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "keywords": [
+    "context",
+    "cli",
+    "scanner"
+  ],
+  "author": "csantisgallegos",
+  "license": "MIT",
+  "dependencies": {
+    "@csantisgallegos/context-core": "0.1.0",
+    "@csantisgallegos/context-adapter-generic-fs": "0.1.0",
+    "commander": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "typescript": "^5.3.3"
+  }
+}

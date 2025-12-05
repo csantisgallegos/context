@@ -1,0 +1,21 @@
+{
+  "name": "@csantisgallegos/context-core",
+  "version": "0.1.0",
+  "description": "Core package for context management with ContextEngine and ContextSource interface",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "keywords": [
+    "context",
+    "llm",
+    "ai"
+  ],
+  "author": "csantisgallegos",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

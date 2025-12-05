@@ -1,0 +1,24 @@
+{
+  "name": "@csantisgallegos/context-adapter-generic-fs",
+  "version": "0.1.0",
+  "description": "File system adapter for scanning project root",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "keywords": [
+    "context",
+    "filesystem",
+    "adapter"
+  ],
+  "author": "csantisgallegos",
+  "license": "MIT",
+  "dependencies": {
+    "@csantisgallegos/context-core": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

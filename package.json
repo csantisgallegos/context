@@ -1,0 +1,26 @@
+{
+  "name": "@csantisgallegos/context",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Toolkit en TypeScript para manejar contexto, capacidades y prompts al trabajar con IA (LLMs)",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "keywords": [
+    "context",
+    "llm",
+    "ai",
+    "typescript",
+    "monorepo"
+  ],
+  "author": "csantisgallegos",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
