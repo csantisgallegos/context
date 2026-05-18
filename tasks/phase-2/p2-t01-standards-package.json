@@ -1,0 +1,131 @@
+{
+  "$schema": "../schema.json",
+  "id": "p2-t01",
+  "title": "Crear paquete context-standards con motor de señales de cumplimiento",
+  "description": "Crear el paquete @csantisgallegos/context-standards que define la estructura base para evaluar proyectos contra estándares ISO. Incluye las interfaces StandardSignal, ComplianceReport y la clase StandardsEngine que agrega y normaliza señales de múltiples adaptadores ISO.",
+  "phase": 2,
+  "version_target": "0.3.0",
+  "priority": "critical",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["standards", "iso", "new-package", "infrastructure"],
+  "iso_alignment": [
+    "ISO/IEC 27001:2022",
+    "ISO/IEC 27002:2022",
+    "ISO/IEC 25010",
+    "ISO/IEC/IEEE 12207",
+    "ISO/IEC 27701:2025"
+  ],
+  "dependencies": ["p1-t01", "p1-t02"],
+  "context": {
+    "why": "Los adaptadores ISO (p2-t02 a p2-t05) necesitan una base común para definir, agregar y reportar señales de cumplimiento. Sin este paquete base, cada adaptador tendría su propio formato incompatible. Este paquete define el 'lenguaje común' de cumplimiento para toda la librería.",
+    "current_state": "No existe ningún paquete de estándares. Los paquetes actuales son: context-core, context-adapter-generic-fs, context-cli. La estructura de monorepo usa npm workspaces con carpeta packages/.",
+    "files_to_read": [
+      "package.json",
+      "packages/context-core/package.json",
+      "packages/context-core/src/types.ts",
+      "packages/context-core/src/engine.ts",
+      "packages/context-adapter-generic-fs/package.json",
+      "tsconfig.json"
+    ],
+    "key_concepts": [
+      "StandardSignal: una señal detectada sobre el proyecto. Tiene un estándar ISO de origen, un nivel de severidad, una descripción y el dato crudo encontrado.",
+      "SignalSeverity: critical (blocker de compliance) | warning (mejora recomendada) | info (observación)",
+      "ComplianceReport: resumen agregado de todas las señales con puntuación por estándar",
+      "StandardsEngine: análogo a ContextEngine pero para señales. Acepta 'StandardSource' y produce ComplianceReport",
+      "StandardSource: interface análoga a ContextSource pero para señales ISO",
+      "El ComplianceReport debe integrarse con ContextOutput existente como un campo adicional opcional"
+    ],
+    "constraints": [
+      "Seguir exactamente la misma estructura de paquete que context-core (mismo tsconfig pattern, mismo package.json pattern)",
+      "No duplicar lógica de context-core: importar @csantisgallegos/context-core para los tipos base",
+      "El paquete debe ser usable de forma independiente (no requiere tener el CLI o los adaptadores fs)",
+      "Nombrar el paquete: @csantisgallegos/context-standards"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Crear la estructura de carpetas del nuevo paquete",
+      "command": "mkdir -p packages/context-standards/src/__tests__",
+      "detail": "Estructura:\npackages/context-standards/\n  src/\n    types.ts\n    engine.ts\n    index.ts\n    __tests__/\n      engine.test.ts\n  package.json\n  tsconfig.json"
+    },
+    {
+      "order": 2,
+      "action": "Crear package.json del paquete context-standards",
+      "file": "packages/context-standards/package.json",
+      "detail": "{\n  \"name\": \"@csantisgallegos/context-standards\",\n  \"version\": \"0.1.0\",\n  \"description\": \"ISO standards compliance signals for context-core\",\n  \"main\": \"dist/index.js\",\n  \"types\": \"dist/index.d.ts\",\n  \"scripts\": {\n    \"build\": \"tsc -b\",\n    \"clean\": \"rm -rf dist *.tsbuildinfo\",\n    \"test\": \"vitest run\",\n    \"test:watch\": \"vitest\"\n  },\n  \"keywords\": [\"context\", \"iso\", \"standards\", \"compliance\", \"llm\"],\n  \"author\": \"csantisgallegos\",\n  \"license\": \"MIT\",\n  \"dependencies\": {\n    \"@csantisgallegos/context-core\": \"*\"\n  },\n  \"devDependencies\": {\n    \"typescript\": \"^5.3.3\",\n    \"vitest\": \"*\"\n  }\n}"
+    },
+    {
+      "order": 3,
+      "action": "Crear tsconfig.json del paquete",
+      "file": "packages/context-standards/tsconfig.json",
+      "detail": "Copiar el patrón de packages/context-core/tsconfig.json y ajustar las referencias. Asegurarse de que references apunte a context-core."
+    },
+    {
+      "order": 4,
+      "action": "Crear types.ts con las interfaces base de estándares",
+      "file": "packages/context-standards/src/types.ts",
+      "detail": "Definir:\n\nexport type IsoStandard =\n  | 'ISO/IEC 27001:2022'\n  | 'ISO/IEC 27002:2022'\n  | 'ISO/IEC 25010'\n  | 'ISO/IEC/IEEE 12207'\n  | 'ISO/IEC 27701:2025';\n\nexport type SignalSeverity = 'critical' | 'warning' | 'info';\n\nexport interface StandardSignal {\n  id: string;                    // identificador único de la señal\n  standard: IsoStandard;         // estándar ISO de origen\n  clause?: string;               // cláusula específica (ej: '8.2.1')\n  severity: SignalSeverity;\n  title: string;                 // descripción corta\n  description: string;           // detalle y recomendación\n  evidence?: string;             // dato crudo que originó la señal\n  remediation?: string;          // cómo resolverlo\n  passed: boolean;               // true = cumple, false = no cumple\n}\n\nexport interface StandardSource {\n  getName(): string;\n  getStandard(): IsoStandard;\n  evaluate(projectRoot: string): Promise<StandardSignal[]>;\n}\n\nexport interface StandardScore {\n  standard: IsoStandard;\n  total: number;\n  passed: number;\n  failed: number;\n  warnings: number;\n  score: number;                 // 0-100\n}\n\nexport interface ComplianceReport {\n  generatedAt: string;\n  projectRoot: string;\n  signals: StandardSignal[];\n  scores: StandardScore[];\n  overallScore: number;          // 0-100\n  criticalIssues: StandardSignal[];  // señales con severity=critical y passed=false\n}"
+    },
+    {
+      "order": 5,
+      "action": "Crear engine.ts con StandardsEngine",
+      "file": "packages/context-standards/src/engine.ts",
+      "detail": "export class StandardsEngine {\n  private sources: StandardSource[] = [];\n\n  addSource(source: StandardSource): void {\n    this.sources.push(source);\n  }\n\n  async evaluate(projectRoot: string): Promise<ComplianceReport> {\n    const allSignals: StandardSignal[] = [];\n\n    for (const source of this.sources) {\n      try {\n        const signals = await source.evaluate(projectRoot);\n        allSignals.push(...signals);\n      } catch (error) {\n        console.error(`Error evaluating ${source.getName()}:`, error);\n      }\n    }\n\n    const scores = this.calculateScores(allSignals);\n    const overallScore = this.calculateOverallScore(scores);\n    const criticalIssues = allSignals.filter(\n      s => s.severity === 'critical' && !s.passed\n    );\n\n    return {\n      generatedAt: new Date().toISOString(),\n      projectRoot,\n      signals: allSignals,\n      scores,\n      overallScore,\n      criticalIssues,\n    };\n  }\n\n  private calculateScores(signals: StandardSignal[]): StandardScore[] { ... }\n  private calculateOverallScore(scores: StandardScore[]): number { ... }\n}"
+    },
+    {
+      "order": 6,
+      "action": "Implementar calculateScores() y calculateOverallScore()",
+      "file": "packages/context-standards/src/engine.ts",
+      "detail": "calculateScores(): agrupa señales por standard. Por cada grupo calcula:\n- total = cantidad de señales\n- passed = señales con passed=true\n- failed = señales con passed=false\n- warnings = señales con severity='warning'\n- score = Math.round((passed / total) * 100) o 100 si total=0\n\ncalculateOverallScore(): promedio simple de todos los scores de cada estándar."
+    },
+    {
+      "order": 7,
+      "action": "Crear index.ts exportando todo",
+      "file": "packages/context-standards/src/index.ts",
+      "detail": "export { StandardsEngine } from './engine';\nexport type {\n  IsoStandard,\n  SignalSeverity,\n  StandardSignal,\n  StandardSource,\n  StandardScore,\n  ComplianceReport,\n} from './types';"
+    },
+    {
+      "order": 8,
+      "action": "Agregar ComplianceReport a ContextOutput en context-core",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "Agregar campo opcional en la interface ContextOutput:\n\ncomplianceReport?: import('@csantisgallegos/context-standards').ComplianceReport;\n\nNOTA: usar import dinámico para evitar dependencia circular. Solo agregar el tipo, no la lógica."
+    },
+    {
+      "order": 9,
+      "action": "Escribir tests para StandardsEngine",
+      "file": "packages/context-standards/src/__tests__/engine.test.ts",
+      "detail": "Tests:\n- addSource() registra fuentes correctamente\n- evaluate() llama evaluate() de cada fuente con el projectRoot\n- Las señales de todas las fuentes se combinan en el reporte\n- criticalIssues solo incluye señales con severity=critical y passed=false\n- overallScore es 100 cuando todas las señales pasan\n- overallScore es 0 cuando ninguna señal pasa\n- Errores en una fuente no detienen la evaluación de otras fuentes"
+    },
+    {
+      "order": 10,
+      "action": "Agregar el nuevo paquete al tsconfig raíz si aplica",
+      "command": "npm install && npm run build",
+      "detail": "Verificar que npm workspaces detecta el nuevo paquete. Luego compilar todo el monorepo."
+    }
+  ],
+  "acceptance_criteria": [
+    "@csantisgallegos/context-standards está disponible como workspace package",
+    "StandardsEngine, StandardSignal, ComplianceReport están exportados correctamente",
+    "StandardsEngine.evaluate() retorna un ComplianceReport válido con scores y overallScore",
+    "Los tests pasan con 'npm test' en el root",
+    "El paquete compila sin errores con 'npm run build'"
+  ],
+  "agent_instructions": {
+    "general": "Modela el nuevo paquete exactamente igual que context-core (misma estructura, mismo patrón de tsconfig, mismo patrón de package.json). Lee packages/context-core/ completo antes de crear el nuevo paquete.",
+    "claude_code": "Usa Write para crear archivos nuevos. Primero crea la carpeta con Bash (mkdir -p), luego los archivos en orden: package.json, tsconfig.json, src/types.ts, src/engine.ts, src/index.ts. Después ejecuta 'npm install && npm run build' para verificar.",
+    "copilot": "Abre package.json y tsconfig.json de context-core como referencia antes de crear los del nuevo paquete. Los archivos de referencia deben estar abiertos en tabs.",
+    "codex": "Provee la estructura de context-core completa como contexto. Pide los archivos en orden: package.json, tsconfig.json, types.ts, engine.ts, index.ts."
+  },
+  "outputs": [
+    "packages/context-standards/ (nuevo paquete completo)",
+    "packages/context-standards/package.json",
+    "packages/context-standards/tsconfig.json",
+    "packages/context-standards/src/types.ts",
+    "packages/context-standards/src/engine.ts",
+    "packages/context-standards/src/index.ts",
+    "packages/context-standards/src/__tests__/engine.test.ts",
+    "packages/context-core/src/engine.ts (modificado: campo complianceReport opcional en ContextOutput)"
+  ]
+}

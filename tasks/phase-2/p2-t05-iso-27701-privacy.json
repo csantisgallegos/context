@@ -1,0 +1,116 @@
+{
+  "$schema": "../schema.json",
+  "id": "p2-t05",
+  "title": "Adaptador ISO 27701: señales de privacidad y datos personales",
+  "description": "Crear el adaptador PrivacyStandardsAdapter que evalúa el proyecto contra ISO/IEC 27701:2025. Detecta si el proyecto maneja datos personales (PII), si existen políticas de privacidad, y si hay artefactos de gestión de datos personales presentes. Especialmente relevante para proyectos que manejan RUT, correos, teléfonos, nombres y otros datos de usuarios.",
+  "phase": 2,
+  "version_target": "0.3.0",
+  "priority": "high",
+  "status": "pending",
+  "estimated_effort": "large",
+  "tags": ["iso-27701", "privacy", "pii", "gdpr", "ley-19628", "adapter", "standards"],
+  "iso_alignment": ["ISO/IEC 27701:2025"],
+  "dependencies": ["p2-t01"],
+  "context": {
+    "why": "Proyectos que manejan usuarios, empresas, RUT, correos, teléfonos, canjes, solicitudes o pagos están sujetos a la Ley 19.628 de Chile (y su actualización) y a ISO 27701. Un agente IA que trabaje en este tipo de proyectos debe saber qué datos personales maneja el sistema y si existen controles de privacidad adecuados, para no introducir vulnerabilidades de privacidad al hacer cambios.",
+    "current_state": "No existe ningún adaptador de privacidad. Este es el adaptador más sensible del proyecto ya que toca PII.",
+    "files_to_read": [
+      "packages/context-standards/src/types.ts",
+      "packages/context-adapter-iso-27001/src/checks/secrets.check.ts"
+    ],
+    "key_concepts": [
+      "PII (Personally Identifiable Information): RUT, nombre, correo, teléfono, dirección, IP, fecha de nacimiento",
+      "PII de Chile: RUT tiene formato XX.XXX.XXX-Y, es el identificador único de personas y empresas",
+      "ISO 27701 extiende ISO 27001 para gestión de información de privacidad (PIMS)",
+      "El adaptador detecta PRESENCIA de datos personales en modelos/schemas, no en datos reales",
+      "Diferencia importante: detectar 'campo email en modelo User' es válido; detectar 'email real en DB' no corresponde a este adaptador",
+      "Ley 19.628 (Chile): requiere consentimiento, propósito definido, y derecho de acceso/eliminación"
+    ],
+    "constraints": [
+      "NUNCA analizar datos reales: no leer archivos de base de datos, dumps, fixtures con datos reales",
+      "Solo analizar: modelos de código, schemas, migraciones, tipos TypeScript/PHP/Java",
+      "No incluir valores reales de PII en las señales, solo nombres de campos o patrones detectados",
+      "Los patrones de detección deben ser case-insensitive: 'email', 'Email', 'EMAIL' son equivalentes",
+      "Ignora archivos: *.test.ts, *.spec.ts, *mock*, *fixture*, *seed*, *factory*"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Crear estructura del paquete context-adapter-iso-27701",
+      "detail": "packages/context-adapter-iso-27701/\n  src/\n    adapter.ts\n    checks/\n      pii-fields.check.ts\n      privacy-policy.check.ts\n      consent.check.ts\n      data-retention.check.ts\n    patterns/\n      pii-patterns.ts\n    index.ts\n    __tests__/\n      adapter.test.ts\n  package.json\n  tsconfig.json"
+    },
+    {
+      "order": 2,
+      "action": "Crear catálogo de patrones PII en pii-patterns.ts",
+      "file": "packages/context-adapter-iso-27701/src/patterns/pii-patterns.ts",
+      "detail": "Definir un mapa de patrones PII con nombre descriptivo:\n\nexport const PII_FIELD_PATTERNS: Record<string, RegExp[]> = {\n  'rut': [/\\brut\\b/i, /\\brut_numero\\b/i, /\\brun\\b/i],\n  'email': [/\\bemail\\b/i, /\\bcorreo\\b/i, /\\bemail_address\\b/i],\n  'telefono': [/\\btelefono\\b/i, /\\bphone\\b/i, /\\bmovil\\b/i, /\\bcelular\\b/i],\n  'nombre': [/\\bnombre\\b/i, /\\bfirst_name\\b/i, /\\blast_name\\b/i, /\\bapellido\\b/i, /\\bfull_name\\b/i],\n  'direccion': [/\\bdireccion\\b/i, /\\baddress\\b/i, /\\bcalle\\b/i, /\\bcomuna\\b/i],\n  'fecha_nacimiento': [/\\bfecha_nacimiento\\b/i, /\\bbirth_date\\b/i, /\\bdob\\b/i, /\\bbirthday\\b/i],\n  'ip': [/\\bip_address\\b/i, /\\bip_addr\\b/i, /\\bremote_ip\\b/i],\n  'password_hash': [/\\bpassword\\b/i, /\\bpwd\\b/i, /\\bpassword_hash\\b/i, /\\bhashed_password\\b/i],\n};\n\nexport const SENSITIVE_PII = ['rut', 'password_hash', 'fecha_nacimiento'];"
+    },
+    {
+      "order": 3,
+      "action": "Implementar check: campos PII en modelos de código",
+      "file": "packages/context-adapter-iso-27701/src/checks/pii-fields.check.ts",
+      "detail": "Escanear archivos de modelos/schemas/types:\n- Extensiones: .ts, .php, .py, .java, .prisma, .graphql, .sql\n- Carpetas a priorizar: models/, entities/, types/, schema/, migrations/\n- Para cada archivo, buscar los patrones de PII_FIELD_PATTERNS\n- Registrar: qué campos PII se encontraron, en qué tipo de archivo, sin exponer valores\n\nOutput como señales:\n- Si se detecta RUT: señal critical (dato sensible único de Chile)\n- Si se detecta email/telefono: señal warning (PII básico)\n- Si se detecta password_hash: señal info (esperado pero documentar)\n- Evidence: 'Campos PII detectados: rut, email, nombre en User model'\n\nClause: ISO 27701 5.2.1 - Identificación de PII"
+    },
+    {
+      "order": 4,
+      "action": "Implementar check: política de privacidad",
+      "file": "packages/context-adapter-iso-27701/src/checks/privacy-policy.check.ts",
+      "detail": "Detectar artefactos de política de privacidad:\n- Archivo: PRIVACY.md, privacy-policy.md, politica-privacidad.md, docs/privacy.md\n- En código: rutas /privacy, /politica-privacidad (buscar en archivos de rutas)\n- Si se detectó PII pero no hay política: severity=critical\n- Si hay política: passed=true, severity=info\nClause: ISO 27701 7.2.1 - Propósito y base legal del procesamiento"
+    },
+    {
+      "order": 5,
+      "action": "Implementar check: mecanismos de consentimiento",
+      "file": "packages/context-adapter-iso-27701/src/checks/consent.check.ts",
+      "detail": "Detectar términos relacionados con consentimiento en el código:\n- Buscar en archivos de rutas/controllers/views: 'consent', 'terms', 'acepto', 'consentimiento'\n- Detectar campos en modelos: accepted_terms, terms_accepted_at, consent_date\n- Si se procesa PII sin evidencia de consentimiento: severity=warning\nClause: ISO 27701 7.2.3 - Obtención del consentimiento"
+    },
+    {
+      "order": 6,
+      "action": "Implementar check: retención de datos",
+      "file": "packages/context-adapter-iso-27701/src/checks/data-retention.check.ts",
+      "detail": "Detectar señales de política de retención:\n- Campos: deleted_at, expires_at, retention_days en modelos (soft delete)\n- Archivos: data-retention.md, docs/data-retention*\n- Jobs/commands con nombres como: purge, cleanup, delete-expired\n- Si hay PII sin señal de retención: severity=warning\nClause: ISO 27701 7.4.7 - Eliminación de PII"
+    },
+    {
+      "order": 7,
+      "action": "Crear PrivacyStandardsAdapter",
+      "file": "packages/context-adapter-iso-27701/src/adapter.ts",
+      "detail": "Orquestar todos los checks. Incluir en el evaluate() una lógica especial:\n- Si PII detectado Y no hay política de privacidad → agregar señal adicional 'riesgo legal'\n- Si PII sensible (RUT) detectado → siempre agregar señal critical de revisión obligatoria"
+    },
+    {
+      "order": 8,
+      "action": "Crear index.ts y tests",
+      "detail": "Tests con proyectos temporales:\n- Proyecto con model User que tiene campo 'rut' → señal critical PII sensible\n- Proyecto con PRIVACY.md → señal passed=true política presente\n- Proyecto sin PII → señales passed=true o info, sin critical\n- Proyecto con PII pero sin política → señal critical riesgo legal"
+    },
+    {
+      "order": 9,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test"
+    }
+  ],
+  "acceptance_criteria": [
+    "PrivacyStandardsAdapter implementa StandardSource",
+    "Archivo con campo 'rut' genera señal severity=critical con clause='5.2.1'",
+    "Archivo con campo 'email' genera señal severity=warning",
+    "Proyecto con PRIVACY.md genera señal passed=true",
+    "Ninguna señal expone valores PII reales, solo nombres de campos",
+    "Archivos de test/mock/fixture son ignorados en el análisis",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "Este es el adaptador más sensible. Nunca incluir valores reales de datos personales en ninguna señal. Solo detectar la presencia de campos o patrones en código estructural. Si tienes dudas, elige la opción más conservadora.",
+    "claude_code": "Implementa pii-patterns.ts primero. Luego pii-fields.check.ts usando los patrones. Testea los patrones regex antes de usarlos en código con casos edge como 'rutero' (no debe matchear 'rut') vs 'user_rut' (sí debe matchear).",
+    "copilot": "Mantén pii-patterns.ts abierto al implementar cada check. Indica explícitamente la restricción de no exponer valores.",
+    "codex": "Implementa el catálogo de patrones primero. Luego pide los checks uno por uno con el catálogo como contexto."
+  },
+  "outputs": [
+    "packages/context-adapter-iso-27701/ (nuevo paquete completo)",
+    "packages/context-adapter-iso-27701/src/adapter.ts",
+    "packages/context-adapter-iso-27701/src/patterns/pii-patterns.ts",
+    "packages/context-adapter-iso-27701/src/checks/pii-fields.check.ts",
+    "packages/context-adapter-iso-27701/src/checks/privacy-policy.check.ts",
+    "packages/context-adapter-iso-27701/src/checks/consent.check.ts",
+    "packages/context-adapter-iso-27701/src/checks/data-retention.check.ts",
+    "packages/context-adapter-iso-27701/src/index.ts",
+    "packages/context-adapter-iso-27701/src/__tests__/adapter.test.ts"
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "$schema": "../schema.json",
+  "id": "p2-t04",
+  "title": "Adaptador ISO 12207: señales del ciclo de vida del software",
+  "description": "Crear el adaptador LifecycleStandardsAdapter que evalúa el proyecto contra procesos clave de ISO/IEC/IEEE 12207. Detecta si el proyecto tiene los artefactos necesarios para cada proceso del ciclo de vida: requerimientos, diseño, construcción, verificación, despliegue, operación y mantenimiento.",
+  "phase": 2,
+  "version_target": "0.3.0",
+  "priority": "medium",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["iso-12207", "lifecycle", "adapter", "standards", "sdlc"],
+  "iso_alignment": ["ISO/IEC/IEEE 12207"],
+  "dependencies": ["p2-t01"],
+  "context": {
+    "why": "ISO 12207 define los procesos del ciclo de vida del desarrollo de software. Un agente que sabe qué procesos están formalizados en el proyecto (ej: hay CI/CD pero no hay proceso de requerimientos documentado) puede dar contexto más rico al sugerir cambios o identificar riesgos.",
+    "current_state": "No existe ningún adaptador de ciclo de vida. Base disponible en context-standards.",
+    "files_to_read": [
+      "packages/context-standards/src/types.ts"
+    ],
+    "key_concepts": [
+      "ISO 12207 Proceso de Requerimientos: README, docs/requirements, user stories",
+      "ISO 12207 Proceso de Diseño: docs/architecture, ADR (Architecture Decision Records), diagramas",
+      "ISO 12207 Proceso de Implementación: estructura de código, convenciones",
+      "ISO 12207 Proceso de Verificación: tests, CI/CD pipelines",
+      "ISO 12207 Proceso de Despliegue: Dockerfile, scripts de deploy, manifests de infra",
+      "ISO 12207 Proceso de Mantenimiento: CHANGELOG, versionado, issues tracking"
+    ],
+    "constraints": [
+      "Solo detectar presencia de artefactos, no evaluar su contenido en profundidad",
+      "No asumir que un proyecto sin CHANGELOG es 'malo', solo registrar la ausencia como señal",
+      "Las señales deben ser informativas para el agente, no punitivas"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Crear estructura del paquete context-adapter-iso-12207",
+      "detail": "packages/context-adapter-iso-12207/\n  src/\n    adapter.ts\n    checks/\n      requirements.check.ts\n      design.check.ts\n      verification.check.ts\n      deployment.check.ts\n      maintenance.check.ts\n    index.ts\n    __tests__/\n      adapter.test.ts\n  package.json\n  tsconfig.json"
+    },
+    {
+      "order": 2,
+      "action": "Implementar check de proceso de Requerimientos",
+      "file": "packages/context-adapter-iso-12207/src/checks/requirements.check.ts",
+      "detail": "Detectar:\n- README.md existe y tiene secciones de descripción del proyecto\n- Existe carpeta docs/ con archivos .md\n- Existe CONTRIBUTING.md o docs/contributing.md\n- Existe archivo de user stories o requirements (requirements.md, user-stories.md, etc.)\n\nSeñal: si ningún artefacto de requerimientos existe, severity=warning, clause='6.4.2 Requirements Process'"
+    },
+    {
+      "order": 3,
+      "action": "Implementar check de proceso de Diseño",
+      "file": "packages/context-adapter-iso-12207/src/checks/design.check.ts",
+      "detail": "Detectar:\n- Existe docs/architecture.md o docs/design.md\n- Existe carpeta docs/adr/ o docs/decisions/ (Architecture Decision Records)\n- Existe archivo de diagramas (.drawio, .puml, .mermaid)\n- Existe ARCHITECTURE.md en el root\n\nClause: '6.4.4 Architectural Design Process'"
+    },
+    {
+      "order": 4,
+      "action": "Implementar check de proceso de Verificación",
+      "file": "packages/context-adapter-iso-12207/src/checks/verification.check.ts",
+      "detail": "Detectar:\n- Archivos de test presentes (*.test.ts, *.spec.ts)\n- CI/CD configurado (.github/workflows/, .gitlab-ci.yml, Jenkinsfile)\n- Configuración de test runner (vitest.config.ts, jest.config.*)\n- Scripts de test en package.json\n\nSeñal: si no hay verificación automatizada, severity=critical, clause='6.4.8 Verification Process'"
+    },
+    {
+      "order": 5,
+      "action": "Implementar check de proceso de Despliegue",
+      "file": "packages/context-adapter-iso-12207/src/checks/deployment.check.ts",
+      "detail": "Detectar:\n- Dockerfile o docker-compose.yml\n- Carpeta infra/ o terraform/ o k8s/\n- Scripts de deploy en package.json (deploy, release, publish)\n- Heroku Procfile, Vercel vercel.json, Render render.yaml\n\nClause: '6.4.11 Deployment Process'"
+    },
+    {
+      "order": 6,
+      "action": "Implementar check de proceso de Mantenimiento",
+      "file": "packages/context-adapter-iso-12207/src/checks/maintenance.check.ts",
+      "detail": "Detectar:\n- CHANGELOG.md existe\n- package.json tiene campo 'version' semver válido\n- Existe .github/ISSUE_TEMPLATE/ o similar\n- Existe LICENSE\n\nSeñal: CHANGELOG ausente → severity=warning, LICENSE ausente → severity=warning\nClause: '6.4.13 Maintenance Process'"
+    },
+    {
+      "order": 7,
+      "action": "Crear LifecycleStandardsAdapter orquestando todos los checks",
+      "file": "packages/context-adapter-iso-12207/src/adapter.ts",
+      "detail": "Usar Promise.allSettled para tolerancia a fallas en todos los checks."
+    },
+    {
+      "order": 8,
+      "action": "Crear index.ts y tests con proyectos temporales",
+      "detail": "Al menos 1 test por proceso del ciclo de vida. Verificar que un proyecto mínimo (solo package.json y README.md) produce señales coherentes."
+    },
+    {
+      "order": 9,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test"
+    }
+  ],
+  "acceptance_criteria": [
+    "LifecycleStandardsAdapter implementa StandardSource",
+    "Un proyecto sin CI/CD genera señal severity=critical para Verification Process",
+    "Un proyecto sin CHANGELOG genera señal severity=warning para Maintenance Process",
+    "Un proyecto con docs/adr/ genera señal passed=true para Design Process",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "Todos los checks son detectores de artefactos. Usar fs.existsSync y glob patterns para detectar archivos. La función auxiliar findFiles(dir, patterns: string[]) que busca archivos por nombre puede ser útil y reutilizable.",
+    "claude_code": "Crea una función utilitaria findArtifact(root, patterns) reutilizable en un archivo utils.ts dentro del paquete. Úsala en todos los checks para reducir duplicación.",
+    "copilot": "Implementa primero verification.check.ts (el más crítico) y úsalo como plantilla para los demás.",
+    "codex": "Provee la interface StandardSignal y el patrón de un check existente como referencia. Pide un check a la vez."
+  },
+  "outputs": [
+    "packages/context-adapter-iso-12207/ (nuevo paquete completo)",
+    "packages/context-adapter-iso-12207/src/adapter.ts",
+    "packages/context-adapter-iso-12207/src/checks/requirements.check.ts",
+    "packages/context-adapter-iso-12207/src/checks/design.check.ts",
+    "packages/context-adapter-iso-12207/src/checks/verification.check.ts",
+    "packages/context-adapter-iso-12207/src/checks/deployment.check.ts",
+    "packages/context-adapter-iso-12207/src/checks/maintenance.check.ts",
+    "packages/context-adapter-iso-12207/src/index.ts",
+    "packages/context-adapter-iso-12207/src/__tests__/adapter.test.ts"
+  ]
+}

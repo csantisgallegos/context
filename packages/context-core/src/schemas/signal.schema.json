@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SignalFile",
+  "description": "Archivo generado automáticamente por 'context scan'. NUNCA editar manualmente. Vive en context/signals/.",
+  "type": "object",
+  "required": ["generatedAt", "source", "data"],
+  "properties": {
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp de cuando se generó este archivo"
+    },
+    "source": {
+      "type": "string",
+      "description": "Nombre del adaptador que generó este archivo (ej: GenericFsAdapter)"
+    },
+    "type": {
+      "type": "string",
+      "description": "Tipo de señal: stack, git, structure, security, quality, lifecycle, privacy"
+    },
+    "data": {
+      "type": "object",
+      "description": "Datos del adaptador. La estructura varía según el tipo de señal."
+    }
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "$schema": "../schema.json",
+  "id": "p4-t01",
+  "title": "Método toSystemPrompt(): generar system prompt listo para LLMs",
+  "description": "Agregar el método toSystemPrompt() a ContextEngine que transforma el contexto recolectado en un system prompt bien estructurado y listo para usar con cualquier LLM. El system prompt incluye: resumen del proyecto, stack tecnológico, convenciones detectadas, señales de compliance y perfil del agente receptor.",
+  "phase": 4,
+  "version_target": "0.5.0",
+  "priority": "high",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["output", "system-prompt", "llm", "multi-agent", "core"],
+  "iso_alignment": [
+    "ISO/IEC 25010 - Usability",
+    "ISO/IEC/IEEE 12207 - Software Integration"
+  ],
+  "dependencies": ["p1-t02", "p1-t03", "p3-t01", "p3-t02"],
+  "context": {
+    "why": "El output actual (JSON y Markdown) es útil para leer, pero no está optimizado para ser inyectado como system prompt de un LLM. Un system prompt bien estructurado tiene: instrucciones de rol, contexto de proyecto y restricciones claras. Este método elimina la fricción de transformar el context.json en algo usable por el agente.",
+    "current_state": "ContextEngine tiene toJSON() y toMarkdown() en engine.ts. El AgentProfile ya está disponible desde p1-t02. Los adaptadores de git y package-json estarán disponibles desde p3-t01 y p3-t02.",
+    "files_to_read": [
+      "packages/context-core/src/engine.ts",
+      "packages/context-core/src/types.ts"
+    ],
+    "key_concepts": [
+      "Un system prompt efectivo tiene secciones: ROLE, PROJECT CONTEXT, TECHNICAL STACK, CONVENTIONS, COMPLIANCE SIGNALS, CONSTRAINTS",
+      "Debe ser conciso: un LLM no necesita el árbol de archivos completo, solo lo relevante",
+      "Debe ser específico al AgentProfile: un reviewer recibe instrucciones diferentes a un developer",
+      "Usar tokens eficientemente: priorizar información crítica y high, omitir low",
+      "El formato debe ser compatible con cualquier LLM: sin markdown complejo, texto plano estructurado"
+    ],
+    "constraints": [
+      "El system prompt no debe superar ~4000 tokens estimados (usar heurística de 4 chars = 1 token)",
+      "Si el contexto excede el límite, truncar las secciones de menor prioridad primero",
+      "Las señales de compliance ISO deben resumirse, no listarse todas",
+      "Debe funcionar aunque no haya AgentProfile definido (rol genérico por defecto)"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Definir la interface SystemPromptOptions",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "export interface SystemPromptOptions {\n  maxTokens?: number;          // default: 4000\n  includeCompliance?: boolean; // default: true si hay complianceReport\n  language?: 'en' | 'es';     // default: 'en'\n  sections?: SystemPromptSection[];  // orden y selección de secciones\n}\n\nexport type SystemPromptSection =\n  | 'role'\n  | 'project-context'\n  | 'tech-stack'\n  | 'conventions'\n  | 'compliance'\n  | 'constraints';"
+    },
+    {
+      "order": 2,
+      "action": "Implementar método toSystemPrompt() en ContextEngine",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "async toSystemPrompt(options: SystemPromptOptions = {}): Promise<string> {\n  const output = await this.collectContext();\n  const agent = this.agent;\n  const language = options.language ?? 'en';\n  const sections: string[] = [];\n\n  // Sección ROLE\n  if (agent) {\n    sections.push(buildRoleSection(agent, language));\n  }\n\n  // Sección PROJECT CONTEXT (de PackageJsonAdapter o GenericFsAdapter)\n  const pkgCtx = output.contexts.find(c => c.type === 'package-json');\n  const gitCtx = output.contexts.find(c => c.type === 'git');\n  if (pkgCtx || gitCtx) {\n    sections.push(buildProjectSection(pkgCtx, gitCtx, language));\n  }\n\n  // Sección TECH STACK\n  if (pkgCtx?.data?.stack) {\n    sections.push(buildStackSection(pkgCtx.data.stack as any, language));\n  }\n\n  // Sección COMPLIANCE (de complianceReport si existe)\n  if (options.includeCompliance !== false && output.complianceReport) {\n    sections.push(buildComplianceSection(output.complianceReport, language));\n  }\n\n  const prompt = sections.join('\\n\\n---\\n\\n');\n\n  // Truncar si supera maxTokens\n  const maxChars = (options.maxTokens ?? 4000) * 4;\n  return prompt.length > maxChars ? prompt.slice(0, maxChars) + '\\n[context truncated]' : prompt;\n}"
+    },
+    {
+      "order": 3,
+      "action": "Implementar helpers de construcción de secciones en archivo separado",
+      "file": "packages/context-core/src/system-prompt-builder.ts",
+      "detail": "Implementar funciones puras:\n\nbuildRoleSection(agent: AgentProfile, lang: string): string\n  → 'You are a {role} AI assistant named {name}.\\nCapabilities: {capabilities.join(', ')}\\n{description}'\n\nbuildProjectSection(pkgCtx, gitCtx, lang): string\n  → 'PROJECT: {name} v{version}\\n{description}\\nBranch: {branch}\\nLast commit: {message}'\n\nbuildStackSection(stack: StackInfo, lang): string\n  → 'TECH STACK:\\n- Framework: {primaryFramework}\\n- Language: {language}\\n- Package manager: {packageManager}\\n- Key deps: {categorized top items}'\n\nbuildComplianceSection(report: ComplianceReport, lang): string\n  → 'COMPLIANCE SIGNALS (overall: {score}/100):\\n- Critical issues: {criticalIssues.length}\\n- {top 3 critical issues}'  "
+    },
+    {
+      "order": 4,
+      "action": "Agregar soporte para español en los builders",
+      "file": "packages/context-core/src/system-prompt-builder.ts",
+      "detail": "Crear un objeto de i18n simple:\n\nconst LABELS = {\n  en: { role: 'ROLE', project: 'PROJECT CONTEXT', stack: 'TECH STACK', compliance: 'COMPLIANCE' },\n  es: { role: 'ROL', project: 'CONTEXTO DEL PROYECTO', stack: 'STACK TECNOLÓGICO', compliance: 'CUMPLIMIENTO' },\n};\n\nUsar el language param para seleccionar las etiquetas correctas."
+    },
+    {
+      "order": 5,
+      "action": "Exportar SystemPromptOptions y el método desde index.ts de context-core",
+      "file": "packages/context-core/src/index.ts",
+      "detail": "Agregar a los exports:\nexport type { SystemPromptOptions, SystemPromptSection } from './engine';"
+    },
+    {
+      "order": 6,
+      "action": "Agregar tests para toSystemPrompt()",
+      "file": "packages/context-core/src/__tests__/engine.test.ts",
+      "detail": "Tests:\n- Sin AgentProfile → prompt no tiene sección ROLE\n- Con AgentProfile developer → prompt empieza con 'You are a developer'\n- Con language='es' → usa etiquetas en español\n- Prompt con contexto que supera maxTokens=100 → termina con '[context truncated]'\n- El prompt resultante es un string no vacío"
+    },
+    {
+      "order": 7,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test"
+    }
+  ],
+  "acceptance_criteria": [
+    "toSystemPrompt() existe en ContextEngine y retorna Promise<string>",
+    "El prompt generado tiene secciones separadas por '---'",
+    "Con AgentProfile developer el prompt menciona el rol del agente",
+    "Con language='es' las etiquetas están en español",
+    "Un prompt que superaría maxTokens es truncado con '[context truncated]'",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "Los helpers de construcción deben ser funciones puras sin side effects. El método toSystemPrompt() solo orquesta, los builders hacen el trabajo real. Mantener la separación.",
+    "claude_code": "Implementa system-prompt-builder.ts primero con funciones puras fáciles de testear. Luego integra al engine.ts. Prueba el output manualmente con console.log en un script simple antes de agregar los tests formales.",
+    "copilot": "Mantén engine.ts y types.ts abiertos. El AgentProfile está definido desde p1-t02. Los tipos de los contextos de Git y PackageJson los infiere de los adaptadores.",
+    "codex": "Provee AgentProfile, ContextOutput, ContextData y ComplianceReport como tipos de entrada. Implementa primero los builders como funciones independientes, luego el método del engine."
+  },
+  "outputs": [
+    "packages/context-core/src/engine.ts (modificado: toSystemPrompt(), SystemPromptOptions)",
+    "packages/context-core/src/system-prompt-builder.ts (nuevo)",
+    "packages/context-core/src/index.ts (modificado: exportar nuevos tipos)",
+    "packages/context-core/src/__tests__/engine.test.ts (modificado: tests de toSystemPrompt)"
+  ]
+}

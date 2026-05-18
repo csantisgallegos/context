@@ -1,0 +1,113 @@
+{
+  "$schema": "../schema.json",
+  "id": "p2-t03",
+  "title": "Adaptador ISO 25010: señales de calidad del software",
+  "description": "Crear el adaptador QualityStandardsAdapter que evalúa el proyecto contra características de calidad definidas en ISO/IEC 25010. Detecta señales de mantenibilidad, confiabilidad, testeabilidad, seguridad y usabilidad a través de la presencia y calidad de artefactos estáticos del proyecto.",
+  "phase": 2,
+  "version_target": "0.3.0",
+  "priority": "high",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["iso-25010", "quality", "adapter", "standards"],
+  "iso_alignment": ["ISO/IEC 25010"],
+  "dependencies": ["p2-t01"],
+  "context": {
+    "why": "ISO 25010 define las características de calidad que un software debe tener. Un agente IA que conoce qué características de calidad están presentes o ausentes en el proyecto puede dar mejores sugerencias y evitar introducir deuda técnica. Por ejemplo, si no hay tests, el agente debería saber que agregar tests es una prioridad antes de agregar features.",
+    "current_state": "No existe ningún adaptador de calidad. La base StandardSource y StandardSignal están disponibles en context-standards (p2-t01).",
+    "files_to_read": [
+      "packages/context-standards/src/types.ts",
+      "packages/context-core/src/types.ts"
+    ],
+    "key_concepts": [
+      "ISO 25010 define 8 características principales: Functional Suitability, Performance Efficiency, Compatibility, Usability, Reliability, Security, Maintainability, Portability",
+      "Para evaluación estática nos enfocamos en: Maintainability, Reliability, Security, Testability",
+      "Maintainability: presencia de linting (.eslintrc, .prettierrc), TypeScript strict mode, documentación",
+      "Reliability: presencia de tests, cobertura estimada, manejo de errores",
+      "Testability: configuración de tests, mocks, fixtures",
+      "Portability: Dockerfile, docker-compose, CI/CD configuration"
+    ],
+    "constraints": [
+      "No ejecutar tests ni medir cobertura real (solo detectar artefactos estáticos)",
+      "Las señales son heurísticas basadas en presencia de archivos, no en análisis de código profundo",
+      "Un proyecto sin linter no es 'malo', pero es una señal relevante para el contexto del agente",
+      "Mantener el scope razonable: máximo 8-10 checks bien definidos"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Crear estructura del paquete context-adapter-iso-25010",
+      "detail": "packages/context-adapter-iso-25010/\n  src/\n    adapter.ts\n    checks/\n      testing.check.ts\n      linting.check.ts\n      typescript.check.ts\n      documentation.check.ts\n      portability.check.ts\n    index.ts\n    __tests__/\n      adapter.test.ts\n  package.json\n  tsconfig.json"
+    },
+    {
+      "order": 2,
+      "action": "Implementar check: presencia y configuración de tests (Testability)",
+      "file": "packages/context-adapter-iso-25010/src/checks/testing.check.ts",
+      "detail": "Señales:\n- Existe vitest.config.ts o jest.config.* → passed=true, Reliability\n- Existe carpeta __tests__/ o archivos *.test.ts o *.spec.ts → passed=true\n- Existe scripts.test en package.json → passed=true\n- No existe ningún artefacto de testing → severity=critical, passed=false\n- Cláusula ISO 25010: Reliability.Fault Tolerance + Testability"
+    },
+    {
+      "order": 3,
+      "action": "Implementar check: configuración de linting (Maintainability)",
+      "file": "packages/context-adapter-iso-25010/src/checks/linting.check.ts",
+      "detail": "Señales:\n- Existe .eslintrc.* o eslint.config.* → passed=true, Maintainability\n- Existe .prettierrc o prettier.config.* → passed=true, Maintainability\n- No existe linting → severity=warning, 'Sin linting configurado'\n- No existe formatter → severity=info\n- Cláusula ISO 25010: Maintainability.Analysability"
+    },
+    {
+      "order": 4,
+      "action": "Implementar check: configuración TypeScript (Maintainability)",
+      "file": "packages/context-adapter-iso-25010/src/checks/typescript.check.ts",
+      "detail": "Señales:\n- Existe tsconfig.json → passed=true\n- tsconfig.json tiene 'strict: true' → passed=true, buena práctica\n- tsconfig.json tiene 'strict: false' o no tiene strict → severity=warning\n- No existe tsconfig.json (proyecto JS puro) → severity=info, no es critical\n- Cláusula ISO 25010: Maintainability.Modifiability"
+    },
+    {
+      "order": 5,
+      "action": "Implementar check: documentación (Usability)",
+      "file": "packages/context-adapter-iso-25010/src/checks/documentation.check.ts",
+      "detail": "Señales:\n- Existe README.md con más de 500 bytes → passed=true\n- Existe README.md pero está vacío o muy corto → severity=warning\n- No existe README.md → severity=critical, passed=false\n- Existe carpeta docs/ → passed=true, info (documentación extendida)\n- Existe CHANGELOG.md → passed=true, info\n- Cláusula ISO 25010: Usability.Learnability + Maintainability.Analysability"
+    },
+    {
+      "order": 6,
+      "action": "Implementar check: portabilidad (Portability)",
+      "file": "packages/context-adapter-iso-25010/src/checks/portability.check.ts",
+      "detail": "Señales:\n- Existe Dockerfile → passed=true, Portability\n- Existe docker-compose.yml o docker-compose.yaml → passed=true\n- Existe .github/workflows/ → passed=true (CI/CD)\n- Existe .gitlab-ci.yml → passed=true (CI/CD)\n- Existe Makefile → passed=true (tasks estandarizadas)\n- Cláusula ISO 25010: Portability.Adaptability"
+    },
+    {
+      "order": 7,
+      "action": "Crear QualityStandardsAdapter",
+      "file": "packages/context-adapter-iso-25010/src/adapter.ts",
+      "detail": "Implementa StandardSource agregando todos los checks. Calcular un 'quality summary' en metadata:\n\nasync evaluate(projectRoot: string): Promise<StandardSignal[]> {\n  const results = await Promise.allSettled([\n    checkTesting(projectRoot),\n    checkLinting(projectRoot),\n    checkTypeScript(projectRoot),\n    checkDocumentation(projectRoot),\n    checkPortability(projectRoot),\n  ]);\n  // flatten y filtrar errores\n  return results\n    .filter(r => r.status === 'fulfilled')\n    .flatMap(r => (r as PromiseFulfilledResult<StandardSignal[]>).value);\n}"
+    },
+    {
+      "order": 8,
+      "action": "Crear index.ts y tests",
+      "detail": "index.ts: export { QualityStandardsAdapter } from './adapter';\n\ntests: verificar con proyectos temporales que tienen/no tienen los artefactos esperados. Al menos 1 test por check."
+    },
+    {
+      "order": 9,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test"
+    }
+  ],
+  "acceptance_criteria": [
+    "QualityStandardsAdapter implementa StandardSource",
+    "Un proyecto sin tests genera señal severity=critical para Testability",
+    "Un proyecto con tsconfig.json strict=true genera señal passed=true para Maintainability",
+    "Un proyecto con README.md > 500 bytes genera señal passed=true para Usability",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "Los checks son heurísticos de presencia de archivos. No analizar el contenido de código en detalle. Usar fs.existsSync y fs.statSync para los checks de presencia y tamaño.",
+    "claude_code": "Implementa checks como funciones puras que reciben projectRoot:string y retornan Promise<StandardSignal[]>. Usa Promise.allSettled en el adaptador para tolerancia a fallas.",
+    "copilot": "Mantén types.ts de context-standards abierto. Implementa cada check en su propio archivo para claridad.",
+    "codex": "Provee las interfaces StandardSignal, StandardSource como contexto. Pide un check a la vez empezando por testing.check.ts."
+  },
+  "outputs": [
+    "packages/context-adapter-iso-25010/ (nuevo paquete completo)",
+    "packages/context-adapter-iso-25010/src/adapter.ts",
+    "packages/context-adapter-iso-25010/src/checks/testing.check.ts",
+    "packages/context-adapter-iso-25010/src/checks/linting.check.ts",
+    "packages/context-adapter-iso-25010/src/checks/typescript.check.ts",
+    "packages/context-adapter-iso-25010/src/checks/documentation.check.ts",
+    "packages/context-adapter-iso-25010/src/checks/portability.check.ts",
+    "packages/context-adapter-iso-25010/src/index.ts",
+    "packages/context-adapter-iso-25010/src/__tests__/adapter.test.ts"
+  ]
+}

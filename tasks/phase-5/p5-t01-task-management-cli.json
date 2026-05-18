@@ -1,0 +1,109 @@
+{
+  "$schema": "../schema.json",
+  "id": "p5-t01",
+  "title": "Comandos 'context task': gestión del ciclo de vida de tareas",
+  "description": "Crear los subcomandos 'context task new', 'context task done' y 'context task list' que gestionan el ciclo de vida de las tareas del agente de IA. Estos comandos son el núcleo del flujo sin fricción: el developer describe qué hacer, el agente lo hace, el developer lo cierra. Sin estos comandos, la gestión de tareas sería manual y propensa a inconsistencias.",
+  "phase": 5,
+  "version_target": "0.5.0",
+  "priority": "high",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["cli", "task-management", "workflow", "friction-free"],
+  "iso_alignment": [
+    "ISO/IEC/IEEE 12207 - Project Planning Process",
+    "ISO/IEC 25010 - Usability"
+  ],
+  "dependencies": ["p0-t01", "p0-t02"],
+  "context": {
+    "why": "El flujo de trabajo depende de que las tareas en context/tasks/active/ estén bien estructuradas. Si el developer tiene que crear el JSON manualmente desde cero en cada tarea, cometerá errores o simplificará demasiado. 'context task new' genera el JSON con la estructura correcta y el developer solo completa los campos. 'context task done' mueve la tarea al historial. 'context task list' muestra el estado actual sin abrir archivos.",
+    "current_state": "No existen comandos de gestión de tareas. Para crear una tarea, el developer debe: crear manualmente un archivo JSON en context/tasks/active/, seguir el schema correcto, y recordar moverlo a tasks/done/ cuando termina. Eso es fricción innecesaria.",
+    "files_to_read": [
+      "packages/context-cli/src/cli.ts",
+      "packages/context-cli/src/commands/init.ts",
+      "packages/context-core/src/schemas/task.schema.json"
+    ],
+    "key_concepts": [
+      "'context task new <nombre>' crea tasks/active/<nombre>.json con el schema correcto y abre el archivo en el editor si es posible",
+      "'context task done <nombre>' mueve tasks/active/<nombre>.json a tasks/done/<nombre>-FECHA.json",
+      "'context task list' muestra las tareas activas con su título y estado en la terminal",
+      "El nombre de la tarea se convierte a slug: 'feat pagos' → 'feat-pagos'",
+      "Al hacer 'task done', agregar campo 'completedAt' con la fecha actual",
+      "Después de 'task new', sugerir correr 'context scan' para actualizar AGENT.md"
+    ],
+    "constraints": [
+      "Si context/ no existe en el proyecto, mostrar error claro: 'Corre context init primero'",
+      "Si la tarea ya existe en active/, preguntar si sobreescribir (no hacerlo por defecto)",
+      "Si la tarea no existe en active/ al hacer done, buscar también en done/ y mostrar aviso",
+      "El slug del nombre debe ser URL-safe: solo letras, números y guiones",
+      "No abrir el editor automáticamente si no hay variable EDITOR definida"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Crear el archivo de comandos de task",
+      "file": "packages/context-cli/src/commands/task.ts",
+      "detail": "Estructura del módulo con tres funciones exportadas:\n\nexport async function taskNew(name: string, options: TaskOptions): Promise<void>\nexport async function taskDone(name: string, options: TaskOptions): Promise<void>\nexport async function taskList(options: TaskOptions): Promise<void>\n\ninterface TaskOptions {\n  projectRoot: string;\n}"
+    },
+    {
+      "order": 2,
+      "action": "Implementar helper: nameToSlug()",
+      "file": "packages/context-cli/src/commands/task.ts",
+      "detail": "function nameToSlug(name: string): string {\n  return name\n    .toLowerCase()\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')  // quitar tildes\n    .replace(/[^a-z0-9\\s-]/g, '')     // quitar caracteres especiales\n    .trim()\n    .replace(/\\s+/g, '-');             // espacios a guiones\n}\n\nEjemplos:\n- 'feat pagos Stripe' → 'feat-pagos-stripe'\n- 'Arreglar bug de autenticación' → 'arreglar-bug-de-autenticacion'"
+    },
+    {
+      "order": 3,
+      "action": "Implementar taskNew()",
+      "file": "packages/context-cli/src/commands/task.ts",
+      "detail": "async function taskNew(name: string, options: TaskOptions):\n\n1. Verificar que context/tasks/active/ existe\n2. Convertir name a slug\n3. Verificar que slug.json no existe ya en active/\n4. Generar el JSON de la tarea con el schema correcto:\n   {\n     id: slug,\n     title: name (original, no slug),\n     created: new Date().toISOString().split('T')[0],\n     status: 'active',\n     context: {\n       why: '(Explica por qué es necesaria esta tarea)',\n       background: '(Información del proyecto relevante para esta tarea)'\n     },\n     scope: {\n       can_modify: ['src/**'],\n       cannot_modify: ['.env', 'database/migrations/**'],\n       must_ask_before: ['cambiar schema de base de datos', 'agregar dependencias']\n     },\n     steps: ['(Paso 1)', '(Paso 2)'],\n     done_when: ['(Condición verificable de completitud)']\n   }\n5. Escribir en context/tasks/active/<slug>.json\n6. Intentar abrir en editor: process.env.EDITOR\n7. Mostrar: '✓ Tarea creada: context/tasks/active/<slug>.json'\n8. Mostrar: 'Siguiente: context scan (actualizar AGENT.md)'"
+    },
+    {
+      "order": 4,
+      "action": "Implementar taskDone()",
+      "file": "packages/context-cli/src/commands/task.ts",
+      "detail": "async function taskDone(name: string, options: TaskOptions):\n\n1. Convertir name a slug\n2. Verificar que context/tasks/active/<slug>.json existe\n3. Leer el archivo de tarea\n4. Agregar campo completedAt: new Date().toISOString()\n5. Cambiar status a 'done'\n6. Generar nombre de archivo con fecha: <slug>-<YYYY-MM-DD>.json\n7. Escribir en context/tasks/done/<slug>-<fecha>.json\n8. Eliminar context/tasks/active/<slug>.json\n9. Correr un mini-scan para actualizar AGENT.md\n10. Mostrar:\n    '✓ Tarea completada: <nombre>'\n    'Movida a: context/tasks/done/<slug>-<fecha>.json'\n    'AGENT.md actualizado'"
+    },
+    {
+      "order": 5,
+      "action": "Implementar taskList()",
+      "file": "packages/context-cli/src/commands/task.ts",
+      "detail": "async function taskList(options: TaskOptions):\n\nLeer todos los archivos en context/tasks/active/ y mostrarlos formateados:\n\nTareas activas (2):\n  → feat-pagos-stripe       Implementar flujo de pago con Stripe\n  → fix-auth-bug            Arreglar bug de autenticación en login\n\nTareas completadas (último mes): 3\n\nSi no hay tareas activas:\n  (No hay tareas activas. Corre: context task new \"nombre de la tarea\")"
+    },
+    {
+      "order": 6,
+      "action": "Registrar los subcomandos en el CLI principal",
+      "file": "packages/context-cli/src/cli.ts",
+      "detail": "Usar el patrón de subcomando de Commander.js:\n\nconst taskCmd = program.command('task').description('Gestionar tareas del agente de IA');\n\ntaskCmd\n  .command('new <name>')\n  .description('Crear una nueva tarea para el agente')\n  .option('--project-root <path>', 'Directorio del proyecto', '.')\n  .action((name, options) => taskNew(name, options));\n\ntaskCmd\n  .command('done <name>')\n  .description('Marcar una tarea como completada')\n  .option('--project-root <path>', 'Directorio del proyecto', '.')\n  .action((name, options) => taskDone(name, options));\n\ntaskCmd\n  .command('list')\n  .description('Listar tareas activas')\n  .option('--project-root <path>', 'Directorio del proyecto', '.')\n  .action(taskList);"
+    },
+    {
+      "order": 7,
+      "action": "Escribir tests para los tres comandos",
+      "file": "packages/context-cli/src/__tests__/task.test.ts",
+      "detail": "Tests con directorio temporal:\n- task new 'feat pagos' → crea feat-pagos.json en tasks/active/\n- task new con nombre con tildes → el slug quita tildes correctamente\n- task new en proyecto sin context/ → error claro\n- task done 'feat pagos' → mueve a tasks/done/feat-pagos-<fecha>.json, elimina de active/\n- task done de tarea inexistente → error claro\n- task list sin tareas → mensaje indicando cómo crear\n- task list con 2 tareas → muestra las 2"
+    },
+    {
+      "order": 8,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test"
+    }
+  ],
+  "acceptance_criteria": [
+    "'context task new \"feat pagos\"' crea context/tasks/active/feat-pagos.json",
+    "El JSON generado tiene todos los campos del schema: id, title, created, status, context, scope, steps, done_when",
+    "'context task done \"feat pagos\"' mueve la tarea a done/ con campo completedAt",
+    "'context task list' muestra las tareas activas sin abrir archivos",
+    "El slug maneja correctamente: tildes, espacios, mayúsculas, caracteres especiales",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "Los comandos de task son el corazón del flujo de trabajo. Deben ser rápidos, claros en sus mensajes y tolerantes a errores comunes (tarea no encontrada, directorio sin init). Los mensajes de éxito deben siempre indicar el siguiente paso.",
+    "claude_code": "Implementa nameToSlug() primero y pruébalo con casos edge (tildes, caracteres especiales, espacios múltiples) antes de integrar al resto. El test de la función de slug es el más importante.",
+    "copilot": "Mantén task.schema.json y init.ts abiertos como referencia. Los JSON generados por taskNew() deben ser válidos contra el schema.",
+    "codex": "Implementa y prueba cada función (new, done, list) de forma independiente. Luego integra al CLI. Verifica que taskDone() limpia correctamente el archivo de active/."
+  },
+  "outputs": [
+    "packages/context-cli/src/commands/task.ts (nuevo)",
+    "packages/context-cli/src/cli.ts (modificado: registrar subcomandos task)",
+    "packages/context-cli/src/__tests__/task.test.ts (nuevo)"
+  ]
+}

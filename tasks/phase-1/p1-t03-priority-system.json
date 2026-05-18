@@ -1,0 +1,125 @@
+{
+  "$schema": "../schema.json",
+  "id": "p1-t03",
+  "title": "Agregar sistema de prioridad y filtrado al ContextEngine",
+  "description": "Mejorar ContextEngine para que las fuentes de contexto tengan prioridad, el output esté ordenado por relevancia, y se pueda filtrar contexto según el perfil del agente activo. Esto es la base para que múltiples agentes con diferentes roles reciban exactamente el contexto que necesitan.",
+  "phase": 1,
+  "version_target": "0.2.0",
+  "priority": "high",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["engine", "priority", "multi-agent", "filtering"],
+  "iso_alignment": [
+    "ISO/IEC 25010 - Maintainability",
+    "ISO/IEC 25010 - Performance Efficiency"
+  ],
+  "dependencies": ["p1-t01", "p1-t02"],
+  "context": {
+    "why": "Hoy addSource() acepta cualquier fuente sin distinción. En un sistema multi-agente real, no todas las fuentes son igualmente relevantes: un agente de seguridad necesita más peso en señales ISO 27001 que en la estructura de carpetas. El sistema de prioridad permite que el contexto sea curado, no solo acumulado.",
+    "current_state": "ContextEngine tiene: addSource(source) que agrega a un array plano, collectContext() que itera en orden de inserción sin prioridad, toJSON() y toMarkdown() que formatean todo sin filtrado. No existe ningún mecanismo de prioridad, peso o filtrado.",
+    "files_to_read": [
+      "packages/context-core/src/engine.ts",
+      "packages/context-core/src/types.ts",
+      "packages/context-core/src/__tests__/engine.test.ts"
+    ],
+    "key_concepts": [
+      "Prioridad numérica: critical=4, high=3, medium=2, low=1. Ordenar descending.",
+      "addSource() debe seguir funcionando sin pasar prioridad (backward compat, default: medium)",
+      "El filtrado por agente aplica cuando hay un AgentProfile definido con agentFilter en las fuentes",
+      "El método filterByPriority(min: ContextPriority) permite excluir fuentes de baja relevancia",
+      "No modificar la signature de collectContext() para mantener backward compat"
+    ],
+    "constraints": [
+      "La signature de addSource(source) debe seguir funcionando (no breaking change)",
+      "addSource puede recibir un segundo parámetro opcional: priority",
+      "El orden del output debe ser: primero por prioridad (desc), luego por orden de inserción dentro del mismo nivel",
+      "No agregar dependencias externas nuevas para esta tarea"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Crear interface interna RegisteredSource en engine.ts",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "Interface privada para mantener fuente + prioridad:\n\ninterface RegisteredSource {\n  source: ContextSource;\n  priority: ContextPriority;\n  insertionOrder: number;\n}"
+    },
+    {
+      "order": 2,
+      "action": "Actualizar el campo privado sources[] en ContextEngine",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "Cambiar:\n  private sources: ContextSource[] = [];\n\nPor:\n  private sources: RegisteredSource[] = [];\n  private insertionCounter = 0;"
+    },
+    {
+      "order": 3,
+      "action": "Actualizar addSource() para aceptar prioridad opcional",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "addSource(source: ContextSource, priority: ContextPriority = ContextPriority.Medium): void {\n  this.sources.push({\n    source,\n    priority,\n    insertionOrder: this.insertionCounter++\n  });\n}\n\nLa prioridad default es Medium para mantener backward compat."
+    },
+    {
+      "order": 4,
+      "action": "Agregar helper privado priorityToNumber()",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "private priorityToNumber(p: ContextPriority): number {\n  const map = {\n    [ContextPriority.Critical]: 4,\n    [ContextPriority.High]: 3,\n    [ContextPriority.Medium]: 2,\n    [ContextPriority.Low]: 1,\n  };\n  return map[p];\n}"
+    },
+    {
+      "order": 5,
+      "action": "Agregar helper privado getSortedSources()",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "private getSortedSources(): RegisteredSource[] {\n  return [...this.sources].sort((a, b) => {\n    const diff = this.priorityToNumber(b.priority) - this.priorityToNumber(a.priority);\n    return diff !== 0 ? diff : a.insertionOrder - b.insertionOrder;\n  });\n}"
+    },
+    {
+      "order": 6,
+      "action": "Actualizar collectContext() para usar orden de prioridad",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "Reemplazar la iteración actual:\n  for (const source of this.sources) {\n\nPor:\n  for (const { source } of this.getSortedSources()) {\n\nEl resto del método permanece igual."
+    },
+    {
+      "order": 7,
+      "action": "Agregar método filterByMinPriority() a ContextEngine",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "Permite crear una vista filtrada del contexto:\n\nasync collectContextAbove(minPriority: ContextPriority): Promise<ContextOutput> {\n  const minNum = this.priorityToNumber(minPriority);\n  const filteredSources = this.getSortedSources()\n    .filter(({ priority }) => this.priorityToNumber(priority) >= minNum);\n\n  const contexts: ContextData[] = [];\n  for (const { source } of filteredSources) {\n    try {\n      const data = await source.collect();\n      contexts.push(data);\n    } catch (error) {\n      console.error(`Error collecting context from ${source.getName()}:`, error);\n    }\n  }\n\n  return {\n    contextSpecVersion: this.specVersion,\n    generatedAt: new Date().toISOString(),\n    agent: this.agent,\n    contexts,\n  };\n}"
+    },
+    {
+      "order": 8,
+      "action": "Agregar método getSourceCount() para inspección",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "getSourceCount(): number {\n  return this.sources.length;\n}\n\nÚtil para tests y para debug."
+    },
+    {
+      "order": 9,
+      "action": "Agregar campo priority al ContextData en el output",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "En collectContext() y collectContextAbove(), cuando se hace push del context data, incluir la prioridad de la fuente si no viene en el data:\n\nconst data = await source.collect();\nif (!data.priority) {\n  data.priority = registered.priority;\n}\ncontexts.push(data);\n\nNecesita destructurar { source, priority: registered_priority } del registered source."
+    },
+    {
+      "order": 10,
+      "action": "Escribir tests para el sistema de prioridad",
+      "file": "packages/context-core/src/__tests__/engine.test.ts",
+      "detail": "Tests a agregar:\n- addSource con prioridad Critical aparece primero en el output aunque fue registrado después\n- addSource sin prioridad usa Medium por defecto\n- collectContextAbove(ContextPriority.High) excluye fuentes Medium y Low\n- getSourceCount() retorna el número correcto\n- Fuentes con misma prioridad mantienen orden de inserción entre sí"
+    },
+    {
+      "order": 11,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test",
+      "detail": "Ambos deben pasar sin errores."
+    }
+  ],
+  "acceptance_criteria": [
+    "addSource(source) sigue funcionando sin pasar prioridad (backward compat)",
+    "addSource(source, ContextPriority.Critical) registra la fuente con prioridad crítica",
+    "El output de collectContext() está ordenado: fuentes Critical primero, luego High, Medium, Low",
+    "collectContextAbove(ContextPriority.High) retorna solo fuentes con prioridad High o Critical",
+    "getSourceCount() retorna el número de fuentes registradas",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "Lee engine.ts completo antes de modificar. Los cambios deben ser aditivos: no eliminar ningún método existente, solo mejorarlos o agregar nuevos. Presta especial atención al backward compat de addSource().",
+    "claude_code": "Usa Edit (no Write) para modificar engine.ts. Primero agrega la interface RegisteredSource y actualiza el campo sources[], luego actualiza addSource(), luego los helpers, luego collectContext(). Ejecuta 'npm run build' después de cada bloque de cambios para detectar errores de TypeScript temprano.",
+    "copilot": "Mantén engine.ts y types.ts abiertos en el editor. Indica explícitamente que los cambios son aditivos y que addSource(source) sin segundo parámetro debe seguir funcionando.",
+    "codex": "Provee engine.ts y types.ts completos como contexto. Pide los cambios en orden: RegisteredSource, luego addSource, luego helpers, luego collectContext, luego collectContextAbove. Verifica backward compat explícitamente."
+  },
+  "outputs": [
+    "packages/context-core/src/engine.ts (modificado: RegisteredSource, addSource con prioridad, getSortedSources, collectContextAbove, getSourceCount)",
+    "packages/context-core/src/__tests__/engine.test.ts (modificado: tests de prioridad y filtrado)"
+  ]
+}

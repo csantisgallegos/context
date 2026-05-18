@@ -1,0 +1,101 @@
+{
+  "$schema": "../schema.json",
+  "id": "p5-t02",
+  "title": "Comando 'context status': visión completa del estado del proyecto",
+  "description": "Crear el comando 'context status' que muestra en la terminal el estado completo del contexto de un proyecto: tareas activas, señales técnicas clave, scores de compliance ISO y cuándo fue el último scan. Es el comando que el developer corre para entender el estado del proyecto de un vistazo, sin abrir archivos ni leer JSON.",
+  "phase": 5,
+  "version_target": "0.5.0",
+  "priority": "medium",
+  "status": "pending",
+  "estimated_effort": "small",
+  "tags": ["cli", "status", "visibility", "workflow"],
+  "iso_alignment": [
+    "ISO/IEC 25010 - Usability",
+    "ISO/IEC/IEEE 12207 - Project Monitoring Process"
+  ],
+  "dependencies": ["p0-t02", "p0-t03", "p5-t01"],
+  "context": {
+    "why": "Después de trabajar varios días en un proyecto, el developer necesita un resumen rápido: ¿qué está haciendo el agente ahora?, ¿cuándo fue el último scan?, ¿hay issues críticos de seguridad?. Sin 'context status', tiene que abrir archivos JSON manualmente. Con el comando, obtiene todo en 2 segundos sin salir de la terminal.",
+    "current_state": "No existe un comando de status. El developer debe leer context/tasks/active/*.json, context/signals/security.json, etc. manualmente para entender el estado.",
+    "files_to_read": [
+      "packages/context-cli/src/cli.ts",
+      "packages/context-cli/src/commands/task.ts",
+      "packages/context-core/src/schemas/signal.schema.json"
+    ],
+    "key_concepts": [
+      "El status lee solo de context/, nunca corre un nuevo scan",
+      "Si signals/ no existe o está desactualizado, mostrar aviso de cuándo fue el último scan",
+      "El output en terminal debe ser legible en segundos: iconos, colores si el terminal los soporta, jerarquía visual",
+      "Las señales críticas de seguridad deben ser las más prominentes (si las hay)",
+      "El status debe funcionar aunque falten algunos archivos en context/ (tolerante a estado incompleto)"
+    ],
+    "constraints": [
+      "No correr ningún adaptador ni scan al ejecutar status (solo leer archivos existentes)",
+      "Completar en menos de 500ms siempre",
+      "No usar colores si la terminal no los soporta (verificar process.stdout.hasColors o similar)",
+      "Si context/ no existe, mostrar error claro con instrucción de cómo inicializar"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Crear el archivo del comando status",
+      "file": "packages/context-cli/src/commands/status.ts",
+      "detail": "export async function status(options: { projectRoot: string }): Promise<void>"
+    },
+    {
+      "order": 2,
+      "action": "Implementar lectura de todas las secciones de context/",
+      "file": "packages/context-cli/src/commands/status.ts",
+      "detail": "Leer de forma tolerante (cada lectura en try/catch individual):\n\nfunction readJsonSafe<T>(path: string): T | null\nfunction readActiveTasks(contextDir: string): TaskSummary[]\nfunction readSignal(signalsDir: string, name: string): SignalData | null\nfunction getLastScanTime(signalsDir: string): Date | null"
+    },
+    {
+      "order": 3,
+      "action": "Implementar la presentación del status en terminal",
+      "file": "packages/context-cli/src/commands/status.ts",
+      "detail": "El output debe seguir este formato:\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n  CONTEXT STATUS — mi-proyecto\n  Último scan: hace 2 horas\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n  TAREAS ACTIVAS (1)\n  → feat-pagos-stripe\n    Implementar flujo de pago con Stripe\n\n  STACK\n  Framework : Next.js 14\n  Lenguaje  : TypeScript\n  Rama      : desarrollo\n  Commit    : fix: resolver vulnerabilidades\n\n  COMPLIANCE\n  Seguridad (ISO 27001) : ⚠ 2 issues críticos\n  Calidad   (ISO 25010) : ✓ 87/100\n  Ciclo vida (ISO 12207): ✓ 91/100\n  Privacidad (ISO 27701): ⚠ RUT detectado — revisar\n\n  AVISO: Las señales tienen 2 horas.\n  Corre 'context scan' para actualizar.\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    },
+    {
+      "order": 4,
+      "action": "Agregar lógica de antigüedad del scan",
+      "file": "packages/context-cli/src/commands/status.ts",
+      "detail": "Leer el campo 'generatedAt' de cualquier archivo en signals/. Calcular cuánto tiempo ha pasado desde ese timestamp. Mostrar: 'hace X minutos', 'hace X horas', 'hace X días'. Si las señales tienen más de 24 horas, mostrar aviso prominente."
+    },
+    {
+      "order": 5,
+      "action": "Registrar el comando en el CLI",
+      "file": "packages/context-cli/src/cli.ts",
+      "detail": "program\n  .command('status')\n  .description('Ver el estado del contexto del proyecto')\n  .option('--project-root <path>', 'Directorio del proyecto', '.')\n  .action(status);"
+    },
+    {
+      "order": 6,
+      "action": "Escribir tests para el comando status",
+      "file": "packages/context-cli/src/__tests__/status.test.ts",
+      "detail": "Tests:\n- status en proyecto sin context/ → error claro con instrucción\n- status en proyecto con context/ pero sin signals/ → muestra tareas, señales 'no disponibles'\n- status con signals/ presentes → muestra datos de stack y compliance\n- status captura antigüedad correctamente (generatedAt de ayer → 'hace 1 día')\n\nUsar directorio temporal con archivos JSON de prueba."
+    },
+    {
+      "order": 7,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test"
+    }
+  ],
+  "acceptance_criteria": [
+    "'context status' muestra el estado completo en menos de 500ms",
+    "Muestra tareas activas con sus títulos",
+    "Muestra stack, rama y último commit de signals/",
+    "Muestra scores de compliance si signals/ de ISO están disponibles",
+    "Muestra cuándo fue el último scan y avisa si tiene más de 24 horas",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "El status es un comando de lectura pura. Nunca escribe archivos ni corre adaptadores. Cada lectura debe estar en try/catch individual para ser tolerante a archivos faltantes. El output en terminal debe ser escaneable en 5 segundos.",
+    "claude_code": "Implementa primero las funciones de lectura (readJsonSafe, readActiveTasks, readSignal) y pruébalas con archivos de test antes de implementar la presentación en terminal.",
+    "copilot": "Usa 'context task list' como referencia de formato de output en terminal.",
+    "codex": "Implementa las funciones de lectura primero. Luego la función de formateo del tiempo (hace X horas). Luego ensambla el output final."
+  },
+  "outputs": [
+    "packages/context-cli/src/commands/status.ts (nuevo)",
+    "packages/context-cli/src/cli.ts (modificado: registrar comando status)",
+    "packages/context-cli/src/__tests__/status.test.ts (nuevo)"
+  ]
+}

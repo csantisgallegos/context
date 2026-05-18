@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContextTask",
+  "description": "Tarea activa que el agente de IA debe ejecutar sobre el proyecto real. Vive en context/tasks/active/.",
+  "type": "object",
+  "required": ["id", "title", "status", "scope", "done_when"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Slug único de la tarea (ej: feat-pagos-stripe)"
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 80,
+      "description": "Título legible de la tarea en una línea"
+    },
+    "created": {
+      "type": "string",
+      "format": "date",
+      "description": "Fecha de creación en formato YYYY-MM-DD"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "paused", "blocked"],
+      "description": "Estado actual de la tarea"
+    },
+    "context": {
+      "type": "object",
+      "description": "Contexto que el agente necesita para entender la tarea",
+      "properties": {
+        "why": {
+          "type": "string",
+          "description": "Por qué es necesaria esta tarea"
+        },
+        "background": {
+          "type": "string",
+          "description": "Información relevante del proyecto para esta tarea"
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "description": "Qué puede y qué no puede tocar el agente",
+      "properties": {
+        "can_modify": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Globs de archivos que el agente puede modificar"
+        },
+        "cannot_modify": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Globs de archivos que el agente NO puede tocar"
+        },
+        "must_ask_before": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Acciones que requieren aprobación explícita del developer"
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Pasos sugeridos de implementación (guía, no obligatorios)"
+    },
+    "done_when": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Criterios verificables de que la tarea está completa"
+    },
+    "completedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp de completitud (lo agrega 'context task done')"
+    }
+  }
+}

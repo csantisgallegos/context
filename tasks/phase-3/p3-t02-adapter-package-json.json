@@ -1,0 +1,97 @@
+{
+  "$schema": "../schema.json",
+  "id": "p3-t02",
+  "title": "Adaptador PackageJson: detección de stack tecnológico y dependencias",
+  "description": "Crear el adaptador PackageJsonAdapter que analiza el package.json del proyecto para detectar el stack tecnológico (framework, runtime, herramientas), las dependencias clave con versiones, los scripts disponibles y la configuración del package manager. Convierte el package.json en contexto estructurado y clasificado.",
+  "phase": 3,
+  "version_target": "0.4.0",
+  "priority": "high",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["package-json", "stack-detection", "adapter", "context-source"],
+  "iso_alignment": [
+    "ISO/IEC 25010 - Maintainability",
+    "ISO/IEC/IEEE 12207 - Technical Process"
+  ],
+  "dependencies": ["p1-t01", "p1-t02"],
+  "context": {
+    "why": "El package.json es la fuente de verdad más confiable del stack de un proyecto Node.js/TypeScript. Un agente que conoce las dependencias exactas y sus versiones puede dar sugerencias que respetan las APIs correctas, evitar sugerir patrones de versiones incompatibles y entender qué herramientas están disponibles.",
+    "current_state": "No existe adaptador de package.json. GenericFsAdapter detecta su presencia pero no analiza su contenido.",
+    "files_to_read": [
+      "packages/context-core/src/types.ts",
+      "packages/context-adapter-generic-fs/src/adapter.ts"
+    ],
+    "key_concepts": [
+      "Frameworks detectables: Next.js (next), Nuxt (nuxt), Express (express), Fastify (fastify), NestJS (@nestjs/core), Astro (astro)",
+      "ORMs detectables: Prisma (prisma), TypeORM (typeorm), Sequelize (sequelize), Drizzle (drizzle-orm)",
+      "Auth detectables: NextAuth (next-auth), Passport (passport), JWT (jsonwebtoken)",
+      "Test runners: Vitest (vitest), Jest (jest), Mocha (mocha)",
+      "Clasificar dependencias en: framework, orm, auth, testing, linting, build-tools, utilities",
+      "Separar devDependencies de dependencies para entender el runtime vs tooling"
+    ],
+    "constraints": [
+      "Si no existe package.json en projectRoot, retornar ContextData con data.error='no-package-json'",
+      "No instalar ni ejecutar las dependencias detectadas",
+      "Si hay workspaces definidos, incluirlos en el output pero no escanear cada workspace",
+      "Limitar el output de dependencias: agrupar por categoría, no listar las 200+ deps de un proyecto grande"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Crear estructura del paquete context-adapter-package-json",
+      "detail": "packages/context-adapter-package-json/\n  src/\n    adapter.ts\n    stack-detector.ts\n    dependency-classifier.ts\n    index.ts\n    __tests__/\n      adapter.test.ts\n  package.json\n  tsconfig.json"
+    },
+    {
+      "order": 2,
+      "action": "Crear dependency-classifier.ts con el catálogo de dependencias conocidas",
+      "file": "packages/context-adapter-package-json/src/dependency-classifier.ts",
+      "detail": "Definir tipo DependencyCategory y el catálogo:\n\nexport type DependencyCategory =\n  | 'framework'\n  | 'orm'\n  | 'auth'\n  | 'testing'\n  | 'linting'\n  | 'build'\n  | 'ui'\n  | 'http-client'\n  | 'utility';\n\nconst CATALOG: Record<string, DependencyCategory> = {\n  'next': 'framework',\n  'nuxt': 'framework',\n  'express': 'framework',\n  'fastify': 'framework',\n  '@nestjs/core': 'framework',\n  'astro': 'framework',\n  'remix': 'framework',\n  'prisma': 'orm',\n  'typeorm': 'orm',\n  'drizzle-orm': 'orm',\n  'sequelize': 'orm',\n  'next-auth': 'auth',\n  'passport': 'auth',\n  'jsonwebtoken': 'auth',\n  'vitest': 'testing',\n  'jest': 'testing',\n  '@testing-library/react': 'testing',\n  'eslint': 'linting',\n  'prettier': 'linting',\n  'typescript': 'build',\n  'webpack': 'build',\n  'vite': 'build',\n  'axios': 'http-client',\n  'react': 'ui',\n  'vue': 'ui',\n  'svelte': 'ui',\n};\n\nexport function classifyDependency(name: string): DependencyCategory | 'unknown' {\n  return CATALOG[name] ?? 'unknown';\n}"
+    },
+    {
+      "order": 3,
+      "action": "Crear stack-detector.ts para detectar el stack del proyecto",
+      "file": "packages/context-adapter-package-json/src/stack-detector.ts",
+      "detail": "export interface StackInfo {\n  primaryFramework: string | null;\n  runtime: 'node' | 'browser' | 'universal' | 'unknown';\n  language: 'typescript' | 'javascript' | 'mixed';\n  hasTests: boolean;\n  hasLinting: boolean;\n  packageManager: 'npm' | 'yarn' | 'pnpm' | 'bun' | 'unknown';\n  categorized: Record<DependencyCategory, string[]>;\n}\n\nLa detección de packageManager se hace verificando archivos de lock en el filesystem:\n- package-lock.json → npm\n- yarn.lock → yarn\n- pnpm-lock.yaml → pnpm\n- bun.lockb → bun"
+    },
+    {
+      "order": 4,
+      "action": "Implementar PackageJsonAdapter",
+      "file": "packages/context-adapter-package-json/src/adapter.ts",
+      "detail": "async collect(): Promise<ContextData> {\n  const pkgPath = path.join(this.projectRoot, 'package.json');\n\n  if (!fs.existsSync(pkgPath)) {\n    return {\n      type: 'package-json',\n      source: this.getName(),\n      timestamp: new Date().toISOString(),\n      priority: ContextPriority.Medium,\n      data: { error: 'no-package-json', projectRoot: this.projectRoot }\n    };\n  }\n\n  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));\n  const allDeps = {\n    ...pkg.dependencies,\n    ...pkg.devDependencies,\n  };\n\n  const stack = detectStack(allDeps, this.projectRoot);\n\n  return {\n    type: 'package-json',\n    source: this.getName(),\n    timestamp: new Date().toISOString(),\n    priority: ContextPriority.High,\n    data: {\n      name: pkg.name,\n      version: pkg.version,\n      description: pkg.description,\n      scripts: pkg.scripts ?? {},\n      workspaces: pkg.workspaces ?? null,\n      stack,\n      dependencyCount: {\n        production: Object.keys(pkg.dependencies ?? {}).length,\n        development: Object.keys(pkg.devDependencies ?? {}).length,\n      }\n    }\n  };\n}"
+    },
+    {
+      "order": 5,
+      "action": "Crear index.ts y tests",
+      "detail": "Tests con diferentes package.json de ejemplo:\n- Proyecto Next.js + Prisma + NextAuth → framework='next', orm='prisma', auth='next-auth'\n- Proyecto Express simple → framework='express', sin ORM\n- Sin package.json → error='no-package-json'\n- Con workspaces → workspaces en el output"
+    },
+    {
+      "order": 6,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test"
+    }
+  ],
+  "acceptance_criteria": [
+    "PackageJsonAdapter implementa ContextSource",
+    "Detecta correctamente Next.js, Prisma y NextAuth como framework/orm/auth",
+    "Sin package.json retorna data.error='no-package-json' sin lanzar excepción",
+    "El output incluye scripts disponibles del proyecto",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "El catálogo de dependencias en dependency-classifier.ts es intencionalmente ampliable. Agregar los más comunes del ecosistema hispanoamericano (Laravel Mix, Inertia, etc. si aplica).",
+    "claude_code": "Lee package.json del proyecto actual como ejemplo de input real. Implementa dependency-classifier.ts primero y verifica los patrones de clasificación con un test unitario simple antes de integrarlo al adaptador.",
+    "copilot": "Abre el package.json de este mismo proyecto como referencia de estructura. Implementa el catálogo de dependencias con al menos 25 entradas conocidas.",
+    "codex": "Provee ContextSource, ContextData y ContextPriority como contexto. Pide primero el catálogo de dependencias, luego el detector de stack, luego el adaptador."
+  },
+  "outputs": [
+    "packages/context-adapter-package-json/ (nuevo paquete)",
+    "packages/context-adapter-package-json/src/adapter.ts",
+    "packages/context-adapter-package-json/src/stack-detector.ts",
+    "packages/context-adapter-package-json/src/dependency-classifier.ts",
+    "packages/context-adapter-package-json/src/index.ts",
+    "packages/context-adapter-package-json/src/__tests__/adapter.test.ts",
+    "packages/context-adapter-package-json/package.json",
+    "packages/context-adapter-package-json/tsconfig.json"
+  ]
+}
