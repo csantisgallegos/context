@@ -1,0 +1,117 @@
+{
+  "$schema": "../schema.json",
+  "id": "p0-t03",
+  "title": "Refactorizar scan para escribir en context/signals/ granular",
+  "description": "Cambiar el comportamiento de 'context scan' para que en vez de generar un context.json monolítico, escriba cada señal técnica en su propio archivo dentro de context/signals/. Cada adaptador produce su propio archivo: stack.json, git.json, structure.json, security.json, quality.json, lifecycle.json, privacy.json. Después de actualizar signals/, regenerar automáticamente el AGENT.md con el estado actualizado.",
+  "phase": 0,
+  "version_target": "0.3.0",
+  "priority": "critical",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["cli", "scan", "refactor", "signals", "output", "architecture"],
+  "iso_alignment": [
+    "ISO/IEC 25010 - Maintainability",
+    "ISO/IEC/IEEE 12207 - Technical Process"
+  ],
+  "dependencies": ["p0-t01", "p0-t02"],
+  "context": {
+    "why": "El context.json monolítico mezcla en un solo archivo: estructura de carpetas, estado de git, stack tecnológico y señales de compliance. El agente de IA no puede leer solo la parte que necesita. Con signals/ granular, el agente puede leer solo security.json si está haciendo una revisión de seguridad, o solo git.json si necesita el estado actual de la rama. Además, cada señal tiene una fecha de generación independiente y es claro qué generó qué.",
+    "current_state": "scan.ts en context-cli escribe:\n- context/context.json (todo el contexto en un JSON)\n- context/context.md (todo el contexto en Markdown)\nAmbos archivos son monolíticos y mezclan responsabilidades. El nuevo comportamiento debe escribir archivos separados en context/signals/.",
+    "files_to_read": [
+      "packages/context-cli/src/commands/scan.ts",
+      "packages/context-cli/src/cli.ts",
+      "packages/context-core/src/engine.ts",
+      "packages/context-core/src/schemas/signal.schema.json"
+    ],
+    "key_concepts": [
+      "Cada adaptador registrado en el engine produce una señal con un 'type' (filesystem, git, package-json, etc.)",
+      "El archivo generado en signals/ se nombra según el type: signals/stack.json para type='package-json', signals/git.json para type='git', etc.",
+      "Los adaptadores ISO (context-standards) producen archivos en signals/: security.json, quality.json, lifecycle.json, privacy.json",
+      "El AGENT.md se regenera siempre después de un scan exitoso — es el único archivo que el scan siempre sobreescribe",
+      "context.json y context.md legacy: mantener como backwards compat durante la transición, deprecar en v0.4.0"
+    ],
+    "constraints": [
+      "No eliminar la generación de context.json y context.md por ahora (backwards compat), solo agregar la salida granular",
+      "signals/ solo se escribe si context/ existe (el scan no crea context/ si no fue inicializado con 'context init')",
+      "Si context/ no existe, el scan muestra un aviso: 'Corre context init primero para usar el nuevo formato'",
+      "Cada archivo en signals/ debe incluir: generatedAt, source, type, data",
+      "El AGENT.md regenerado usa el mismo formato que genera context init, pero con datos reales del scan"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Agregar método toSignals() al ContextEngine",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "Nuevo método que retorna el contexto como un mapa de archivos en vez de un objeto monolítico:\n\nasync toSignals(): Promise<Map<string, object>> {\n  const output = await this.collectContext();\n  const signals = new Map<string, object>();\n\n  for (const ctx of output.contexts) {\n    const filename = this.typeToFilename(ctx.type);\n    signals.set(filename, {\n      generatedAt: ctx.timestamp,\n      source: ctx.source,\n      type: ctx.type,\n      data: ctx.data,\n    });\n  }\n\n  return signals;\n}\n\nprivate typeToFilename(type: string): string {\n  const map: Record<string, string> = {\n    'filesystem': 'structure.json',\n    'git': 'git.json',\n    'package-json': 'stack.json',\n    'env': 'env.json',\n  };\n  return map[type] ?? `${type}.json`;\n}"
+    },
+    {
+      "order": 2,
+      "action": "Agregar método de generación de AGENT.md actualizado",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "Método toAgentMd() que genera el archivo de entrada del agente con datos reales:\n\nasync toAgentMd(projectRoot: string): Promise<string> {\n  const output = await this.collectContext();\n  // extraer datos clave de los contextos\n  const pkg = output.contexts.find(c => c.type === 'package-json')?.data;\n  const git = output.contexts.find(c => c.type === 'git')?.data;\n  const stack = (pkg as any)?.stack;\n\n  // Leer tarea activa si existe (de context/tasks/active/)\n  const activeTasks = this.readActiveTasks(projectRoot);\n\n  return buildAgentMd({ output, pkg, git, stack, activeTasks });\n}\n\nEl AGENT.md generado es un índice que apunta a los archivos en context/, no un documento autocontenido."
+    },
+    {
+      "order": 3,
+      "action": "Refactorizar scan.ts para escribir en signals/",
+      "file": "packages/context-cli/src/commands/scan.ts",
+      "detail": "Nuevo flujo en scan():\n\n// 1. Verificar que context/ existe\nconst contextDir = path.join(options.projectRoot, 'context');\nif (!fs.existsSync(contextDir)) {\n  console.warn('⚠ context/ no encontrado. Corre primero: context init --project-root=.');\n  // continuar con el comportamiento legacy (context.json monolítico)\n}\n\n// 2. Obtener señales granulares\nconst signals = await engine.toSignals();\n\n// 3. Escribir cada señal en su archivo\nconst signalsDir = path.join(contextDir, 'signals');\nfs.mkdirSync(signalsDir, { recursive: true });\n\nfor (const [filename, data] of signals.entries()) {\n  const filePath = path.join(signalsDir, filename);\n  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');\n  console.log(`✓ Signal: context/signals/${filename}`);\n}\n\n// 4. Regenerar AGENT.md\nconst agentMd = await engine.toAgentMd(options.projectRoot);\nfs.writeFileSync(path.join(options.projectRoot, 'AGENT.md'), agentMd, 'utf-8');\nconsole.log('✓ AGENT.md actualizado');\n\n// 5. Mantener legacy context.json (deprecación futura)\nconst legacyJson = await engine.toJSON();\nfs.writeFileSync(path.join(contextDir, 'context.json'), legacyJson, 'utf-8');"
+    },
+    {
+      "order": 4,
+      "action": "Integrar adaptadores ISO en el scan cuando están disponibles",
+      "file": "packages/context-cli/src/commands/scan.ts",
+      "detail": "El scan debe intentar usar los adaptadores ISO si están instalados. Usar dynamic import para no romper si no están disponibles:\n\ntry {\n  const { StandardsEngine } = await import('@csantisgallegos/context-standards');\n  // Intentar cargar cada adaptador ISO\n  // Si no están instalados, continuar sin ellos\n  // Las señales ISO se escriben en signals/security.json, signals/quality.json, etc.\n} catch {\n  // context-standards no está instalado, continuar sin compliance\n}"
+    },
+    {
+      "order": 5,
+      "action": "Implementar buildAgentMd() en un helper separado",
+      "file": "packages/context-cli/src/agent-md-builder.ts",
+      "detail": "Función que construye el AGENT.md con datos reales del scan. Secciones:\n\n1. Header: nombre del proyecto + fecha de actualización\n2. 'Antes de empezar, lee:' con links a context/ archivos\n3. 'Tarea activa:' si hay tasks/active/*.json (lista los títulos)\n4. 'Estado técnico:' stack, rama, último commit, compliance score\n5. 'Comandos disponibles:' extraídos de signals/stack.json scripts\n6. 'Señales de riesgo:' issues críticos de signals/security.json y signals/quality.json\n\nEl AGENT.md debe ser un índice que invita al agente a leer context/, no un documento que duplica toda la información."
+    },
+    {
+      "order": 6,
+      "action": "Agregar función readActiveTasks() al engine",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "Lee los archivos JSON en context/tasks/active/ y retorna sus títulos y estados:\n\nprivate readActiveTasks(projectRoot: string): Array<{id: string, title: string}> {\n  const activeDir = path.join(projectRoot, 'context', 'tasks', 'active');\n  if (!fs.existsSync(activeDir)) return [];\n  return fs.readdirSync(activeDir)\n    .filter(f => f.endsWith('.json') && f !== '.gitkeep')\n    .map(f => {\n      try {\n        const task = JSON.parse(fs.readFileSync(path.join(activeDir, f), 'utf-8'));\n        return { id: task.id, title: task.title };\n      } catch { return null; }\n    })\n    .filter(Boolean) as Array<{id: string, title: string}>;\n}"
+    },
+    {
+      "order": 7,
+      "action": "Agregar flag --no-legacy al CLI para omitir context.json legacy",
+      "file": "packages/context-cli/src/cli.ts",
+      "detail": "Agregar opción al comando scan:\n.option('--no-legacy', 'No generar context.json y context.md legacy', false)\n\nPermite que proyectos nuevos (post-init) usen solo el formato granular."
+    },
+    {
+      "order": 8,
+      "action": "Actualizar tests de scan para verificar la nueva salida granular",
+      "file": "packages/context-cli/src/__tests__/scan.test.ts",
+      "detail": "Tests nuevos:\n- scan en proyecto con context/ → genera context/signals/structure.json\n- signals/structure.json tiene campos: generatedAt, source, type, data\n- AGENT.md se genera/actualiza en la raíz del proyecto\n- scan en proyecto sin context/ → genera aviso pero continúa con legacy\n- AGENT.md contiene la tarea activa si hay archivos en context/tasks/active/"
+    },
+    {
+      "order": 9,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test"
+    }
+  ],
+  "acceptance_criteria": [
+    "'context scan' genera archivos individuales en context/signals/ si context/ existe",
+    "signals/structure.json contiene el resultado del GenericFsAdapter",
+    "AGENT.md se actualiza automáticamente después de cada scan",
+    "Si context/ no existe, scan muestra aviso y continúa con formato legacy",
+    "context.json legacy sigue generándose para backwards compat",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "La refactorización es aditiva: no eliminar el comportamiento actual, solo agregar el nuevo. El format legacy (context.json, context.md) se mantiene durante la transición. El AGENT.md es el único archivo que siempre se sobreescribe con datos frescos del scan.",
+    "claude_code": "Lee scan.ts completo antes de modificar. Usa dynamic import para los adaptadores ISO para evitar errores si no están instalados. Agrega los nuevos comportamientos después de los existentes, no reemplazando.",
+    "copilot": "Mantén scan.ts y engine.ts abiertos. El método toSignals() en engine.ts es el núcleo del cambio.",
+    "codex": "Implementa primero toSignals() en el engine y pruébalo. Luego refactoriza scan.ts para usarlo. Por último el agentMd builder."
+  },
+  "outputs": [
+    "packages/context-core/src/engine.ts (modificado: toSignals(), toAgentMd(), readActiveTasks())",
+    "packages/context-cli/src/commands/scan.ts (modificado: escritura granular en signals/)",
+    "packages/context-cli/src/agent-md-builder.ts (nuevo)",
+    "packages/context-cli/src/cli.ts (modificado: flag --no-legacy)",
+    "packages/context-cli/src/__tests__/scan.test.ts (nuevo o modificado)"
+  ]
+}

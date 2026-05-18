@@ -1,0 +1,105 @@
+{
+  "$schema": "../schema.json",
+  "id": "p0-t01",
+  "title": "Definir el estándar de la carpeta context/ y sus schemas JSON",
+  "description": "Establecer la especificación formal de qué archivos viven en context/, qué escribe el developer y qué genera la herramienta automáticamente. Crear los schemas JSON para cada tipo de archivo (project.json, tasks/active/*.json, agents/*.json, decisions/*.md). Esta es la base de todo el enfoque: sin un estándar claro, cada proyecto usaría una estructura diferente y el agente no sabría qué leer.",
+  "phase": 0,
+  "version_target": "0.2.0",
+  "priority": "critical",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["schema", "standard", "context-folder", "specification", "foundation"],
+  "iso_alignment": [
+    "ISO/IEC/IEEE 12207 - Documentation Process",
+    "ISO/IEC 25010 - Maintainability"
+  ],
+  "dependencies": [],
+  "context": {
+    "why": "El enfoque central de la librería es que context/ sea la fuente de verdad del proyecto para el agente de IA. Sin un schema formal, los archivos dentro serían texto libre sin estructura, el agente no podría leerlos de forma confiable y la herramienta no podría validarlos. El schema define el contrato entre el developer, la herramienta y el agente.",
+    "current_state": "No existe definición formal de la carpeta context/. El scan actual genera un context.json monolítico y un context.md. La nueva visión requiere una carpeta con archivos separados por responsabilidad: algunos escritos por el developer, otros generados automáticamente por la herramienta.",
+    "files_to_read": [
+      "packages/context-core/src/types.ts",
+      "tasks/schema.json"
+    ],
+    "key_concepts": [
+      "Separación de responsabilidades: developer escribe intención, herramienta escribe señales técnicas",
+      "signals/ nunca se edita manualmente: es territorio exclusivo de context scan",
+      "tasks/active/ define lo que el agente está haciendo ahora, tasks/done/ es historial",
+      "agents/*.json define el perfil del agente: qué puede hacer y qué no puede tocar",
+      "decisions/ son Architecture Decision Records (ADR): por qué se eligió algo, no qué se eligió",
+      "Un agente de IA debe poder leer context/ completo al inicio de cualquier sesión y entender el proyecto sin instrucciones adicionales del developer"
+    ],
+    "constraints": [
+      "Los schemas deben ser JSON Schema draft-07 válido",
+      "Todos los archivos en signals/ son generados y nunca deben editarse manualmente",
+      "Los archivos que escribe el developer deben tener defaults sensatos para que no queden vacíos",
+      "Los schemas deben ser simples: un agente de IA debe poder leerlos sin documentación adicional",
+      "Mantener compatibilidad con proyectos que ya tengan una carpeta de contexto manual (tareas.md, arquitectura.md, etc.) — el schema debe ser una versión más estructurada, no incompatible"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Crear la carpeta de schemas en el paquete context-core",
+      "file": "packages/context-core/src/schemas/",
+      "detail": "Esta carpeta contendrá los JSON Schemas que definen cada tipo de archivo dentro de context/. Los schemas son parte del paquete core porque son la especificación que todo el sistema respeta."
+    },
+    {
+      "order": 2,
+      "action": "Crear schema para project.json",
+      "file": "packages/context-core/src/schemas/project.schema.json",
+      "detail": "{\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"title\": \"ProjectContext\",\n  \"description\": \"Identidad y configuración base del proyecto. Parte generada por 'context init', parte completada por el developer.\",\n  \"type\": \"object\",\n  \"required\": [\"id\", \"name\", \"description\"],\n  \"properties\": {\n    \"id\": { \"type\": \"string\", \"description\": \"Slug único del proyecto\" },\n    \"name\": { \"type\": \"string\" },\n    \"description\": { \"type\": \"string\" },\n    \"version\": { \"type\": \"string\" },\n    \"language\": { \"type\": \"string\", \"enum\": [\"es\", \"en\"], \"default\": \"es\" },\n    \"domain\": { \"type\": \"string\", \"description\": \"Dominio de negocio: ej 'gestion-publica', 'ecommerce', 'saas'\" },\n    \"agents\": {\n      \"type\": \"array\",\n      \"description\": \"Referencias a perfiles de agente que trabajan en este proyecto\",\n      \"items\": { \"type\": \"string\", \"description\": \"Nombre del archivo en agents/ sin extensión\" }\n    }\n  }\n}"
+    },
+    {
+      "order": 3,
+      "action": "Crear schema para tasks/active/*.json",
+      "file": "packages/context-core/src/schemas/task.schema.json",
+      "detail": "{\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"title\": \"ContextTask\",\n  \"description\": \"Tarea activa que el agente de IA debe ejecutar sobre el proyecto real.\",\n  \"type\": \"object\",\n  \"required\": [\"id\", \"title\", \"status\", \"scope\", \"done_when\"],\n  \"properties\": {\n    \"id\": { \"type\": \"string\" },\n    \"title\": { \"type\": \"string\", \"maxLength\": 80 },\n    \"created\": { \"type\": \"string\", \"format\": \"date\" },\n    \"status\": { \"type\": \"string\", \"enum\": [\"active\", \"paused\", \"blocked\"] },\n    \"context\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"why\": { \"type\": \"string\", \"description\": \"Por qué es necesaria esta tarea\" },\n        \"background\": { \"type\": \"string\", \"description\": \"Información relevante del proyecto para esta tarea\" }\n      }\n    },\n    \"scope\": {\n      \"type\": \"object\",\n      \"description\": \"Qué puede y qué no puede tocar el agente\",\n      \"properties\": {\n        \"can_modify\": { \"type\": \"array\", \"items\": { \"type\": \"string\" }, \"description\": \"Globs de archivos modificables\" },\n        \"cannot_modify\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n        \"must_ask_before\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } }\n      }\n    },\n    \"steps\": {\n      \"type\": \"array\",\n      \"items\": { \"type\": \"string\" },\n      \"description\": \"Pasos sugeridos de implementación\"\n    },\n    \"done_when\": {\n      \"type\": \"array\",\n      \"items\": { \"type\": \"string\" },\n      \"description\": \"Criterios verificables de completitud\"\n    }\n  }\n}"
+    },
+    {
+      "order": 4,
+      "action": "Crear schema para agents/*.json",
+      "file": "packages/context-core/src/schemas/agent.schema.json",
+      "detail": "{\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"title\": \"AgentProfile\",\n  \"description\": \"Perfil de un agente de IA que trabaja en este proyecto. Define identidad, capacidades y restricciones.\",\n  \"type\": \"object\",\n  \"required\": [\"id\", \"name\", \"role\", \"capabilities\", \"restrictions\"],\n  \"properties\": {\n    \"id\": { \"type\": \"string\" },\n    \"name\": { \"type\": \"string\" },\n    \"role\": {\n      \"type\": \"string\",\n      \"enum\": [\"developer\", \"reviewer\", \"architect\", \"security-auditor\", \"qa-engineer\", \"devops\", \"doc-writer\"],\n      \"description\": \"Rol del agente. Determina qué tipo de trabajo realiza.\"\n    },\n    \"capabilities\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\",\n        \"enum\": [\"read-code\", \"write-code\", \"run-tests\", \"run-commands\", \"read-docs\", \"write-docs\", \"security-review\", \"architecture-review\"]\n      }\n    },\n    \"scope\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"file_patterns\": { \"type\": \"array\", \"items\": { \"type\": \"string\" }, \"description\": \"Globs de archivos que puede modificar\" },\n        \"excluded_patterns\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } }\n      }\n    },\n    \"restrictions\": {\n      \"type\": \"array\",\n      \"items\": { \"type\": \"string\" },\n      \"description\": \"Reglas explícitas de lo que el agente NO puede hacer\"\n    },\n    \"instructions\": {\n      \"type\": \"string\",\n      \"description\": \"Instrucciones adicionales en lenguaje natural para este agente en este proyecto\"\n    }\n  }\n}"
+    },
+    {
+      "order": 5,
+      "action": "Crear schema para signals/*.json",
+      "file": "packages/context-core/src/schemas/signal.schema.json",
+      "detail": "{\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"title\": \"SignalFile\",\n  \"description\": \"Archivo generado automáticamente por context scan. NUNCA editar manualmente.\",\n  \"type\": \"object\",\n  \"required\": [\"generatedAt\", \"source\", \"data\"],\n  \"properties\": {\n    \"generatedAt\": { \"type\": \"string\", \"format\": \"date-time\" },\n    \"source\": { \"type\": \"string\", \"description\": \"Nombre del adaptador que generó este archivo\" },\n    \"type\": { \"type\": \"string\", \"description\": \"Tipo de señal: stack, git, security, quality, lifecycle, privacy\" },\n    \"data\": { \"type\": \"object\", \"description\": \"Datos del adaptador\" }\n  }\n}"
+    },
+    {
+      "order": 6,
+      "action": "Documentar la estructura completa en un archivo de especificación",
+      "file": "packages/context-core/src/schemas/CONTEXT_FOLDER_SPEC.md",
+      "detail": "Documento de especificación que describe:\n\n# Especificación de la carpeta context/\n\n## Estructura\n```\ncontext/\n├── project.json        → developer (con context init, editar luego)\n├── architecture.md     → developer (escribe libre)\n├── conventions.md      → developer (escribe libre)\n├── roadmap.md          → developer (escribe libre)\n├── tasks/\n│   ├── active/         → developer (con context task new)\n│   └── done/           → herramienta (con context task done)\n├── decisions/          → developer (con context decision new)\n├── agents/             → developer (con context init, editar luego)\n└── signals/            → SOLO herramienta (context scan)\n    ├── stack.json\n    ├── git.json\n    ├── structure.json\n    ├── security.json\n    ├── quality.json\n    ├── lifecycle.json\n    └── privacy.json\n```\n\n## Regla fundamental\nEl agente de IA lee context/ completo al inicio de cada sesión.\nNunca debe necesitar que el developer le explique el proyecto de forma verbal.\n\n## Responsabilidad por archivo\n| Archivo | Quien escribe | Cuándo |\n|---------|--------------|--------|\n| project.json | context init + developer | Una vez, al inicio |\n| architecture.md | Developer | Cuando cambia la arquitectura |\n| conventions.md | Developer | Al establecer o cambiar reglas |\n| tasks/active/*.json | Developer (context task new) | Inicio de cada tarea |\n| tasks/done/*.json | Herramienta (context task done) | Al cerrar una tarea |\n| decisions/*.md | Developer | Al tomar una decisión técnica importante |\n| agents/*.json | Developer | Al incorporar un agente al proyecto |\n| signals/*.json | SOLO context scan | Cada vez que corre context scan |"
+    },
+    {
+      "order": 7,
+      "action": "Exportar los schemas desde context-core como constantes TypeScript",
+      "file": "packages/context-core/src/schemas/index.ts",
+      "detail": "Exportar las rutas a los schemas y los tipos TypeScript derivados de ellos, para que los otros paquetes puedan validar archivos context/ sin reimplementar la lógica de schema."
+    }
+  ],
+  "acceptance_criteria": [
+    "Existen schemas JSON válidos para project.json, task.schema.json, agent.schema.json, signal.schema.json",
+    "El documento CONTEXT_FOLDER_SPEC.md describe claramente qué escribe el developer y qué genera la herramienta",
+    "Un agente de IA puede leer CONTEXT_FOLDER_SPEC.md y entender la estructura sin documentación adicional",
+    "Los schemas son JSON Schema draft-07 válidos (verificar con un validador online)",
+    "npm run build pasa sin errores"
+  ],
+  "agent_instructions": {
+    "general": "Los schemas deben ser simples y autodescriptivos. Cada campo debe tener una descripción en español que cualquier developer entienda sin leer documentación extra. Priorizar claridad sobre completitud.",
+    "claude_code": "Crear primero CONTEXT_FOLDER_SPEC.md para que sirva de guía durante la implementación de los schemas. Luego los schemas en orden: project → task → agent → signal.",
+    "copilot": "Usar el archivo tasks/schema.json existente como referencia de estilo para los nuevos schemas.",
+    "codex": "Implementar los schemas como JSON puros primero. Luego crear el index.ts de TypeScript que los exporta."
+  },
+  "outputs": [
+    "packages/context-core/src/schemas/CONTEXT_FOLDER_SPEC.md (nuevo)",
+    "packages/context-core/src/schemas/project.schema.json (nuevo)",
+    "packages/context-core/src/schemas/task.schema.json (nuevo)",
+    "packages/context-core/src/schemas/agent.schema.json (nuevo)",
+    "packages/context-core/src/schemas/signal.schema.json (nuevo)",
+    "packages/context-core/src/schemas/index.ts (nuevo)"
+  ]
+}

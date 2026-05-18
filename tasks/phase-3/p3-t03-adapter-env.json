@@ -1,0 +1,96 @@
+{
+  "$schema": "../schema.json",
+  "id": "p3-t03",
+  "title": "Adaptador Env: variables de entorno enmascaradas para contexto del agente",
+  "description": "Crear el adaptador EnvAdapter que lee archivos .env del proyecto y expone únicamente las KEYS (nombres de variables) sin sus valores. Detecta qué variables son requeridas vs opcionales usando .env.example como referencia, y clasifica las variables por categoría (database, auth, api-keys, app-config). Permite al agente conocer la configuración disponible sin comprometer la seguridad.",
+  "phase": 3,
+  "version_target": "0.4.0",
+  "priority": "medium",
+  "status": "pending",
+  "estimated_effort": "small",
+  "tags": ["env", "adapter", "security", "context-source", "configuration"],
+  "iso_alignment": [
+    "ISO/IEC 27001:2022 - A.5.14 Information Transfer",
+    "ISO/IEC 27001:2022 - A.8.12 Data Leakage Prevention"
+  ],
+  "dependencies": ["p1-t01", "p1-t02"],
+  "context": {
+    "why": "Un agente que sabe qué variables de entorno existen (sin sus valores) puede dar sugerencias más precisas: sabe si DATABASE_URL existe, si hay configuración de mail, si hay keys de servicios externos. Esto evita que el agente sugiera hardcodear valores o que ignore configuración existente.",
+    "current_state": "No existe adaptador de variables de entorno. Es el adaptador más simple de la fase 3.",
+    "files_to_read": [
+      "packages/context-core/src/types.ts",
+      "packages/context-adapter-generic-fs/src/adapter.ts"
+    ],
+    "key_concepts": [
+      "NUNCA leer ni exponer valores de variables de entorno, solo sus nombres (keys)",
+      ".env.example o .env.template: define las variables requeridas con valores placeholder",
+      "Una variable está en .env pero no en .env.example → puede ser un secret local no documentado",
+      "Una variable está en .env.example pero no en .env → variable requerida no configurada localmente",
+      "Clasificación por prefijo/nombre: DB_* o DATABASE_* → database; JWT_* o AUTH_* → auth; *_API_KEY o *_SECRET → api-key; etc."
+    ],
+    "constraints": [
+      "ABSOLUTAMENTE NUNCA incluir valores de variables en ningún output",
+      "Solo procesar archivos .env, .env.local, .env.example, .env.template, .env.development, .env.production (solo como referencia de keys)",
+      "No procesar archivos .env.*.local de producción sin permiso explícito",
+      "Si .env está en .gitignore, indicarlo como buena práctica en metadata"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Crear estructura del paquete context-adapter-env",
+      "detail": "packages/context-adapter-env/\n  src/\n    adapter.ts\n    env-parser.ts      (parsear .env sin exponer valores)\n    env-classifier.ts  (clasificar variables por categoría)\n    index.ts\n    __tests__/\n      adapter.test.ts\n  package.json\n  tsconfig.json"
+    },
+    {
+      "order": 2,
+      "action": "Crear env-parser.ts: parsear .env extrayendo solo keys",
+      "file": "packages/context-adapter-env/src/env-parser.ts",
+      "detail": "Función que lee un archivo .env y retorna solo los nombres de las variables:\n\nexport function parseEnvKeys(filePath: string): string[] {\n  if (!fs.existsSync(filePath)) return [];\n  const content = fs.readFileSync(filePath, 'utf-8');\n  return content\n    .split('\\n')\n    .map(line => line.trim())\n    .filter(line => line && !line.startsWith('#'))  // ignorar comentarios\n    .map(line => line.split('=')[0].trim())           // solo el nombre\n    .filter(key => /^[A-Z_][A-Z0-9_]*$/.test(key));  // validar formato\n}\n\nIMPORTANTE: nunca capturar el lado derecho del '='."
+    },
+    {
+      "order": 3,
+      "action": "Crear env-classifier.ts: clasificar variables por categoría",
+      "file": "packages/context-adapter-env/src/env-classifier.ts",
+      "detail": "export type EnvCategory = 'database' | 'auth' | 'api-key' | 'mail' | 'storage' | 'app' | 'unknown';\n\nconst CATEGORY_PATTERNS: [RegExp, EnvCategory][] = [\n  [/^(DB_|DATABASE_|MYSQL_|POSTGRES_|MONGO_|REDIS_)/i, 'database'],\n  [/^(JWT_|AUTH_|SESSION_|NEXTAUTH_|SANCTUM_|OAUTH_)/i, 'auth'],\n  [/(API_KEY|_SECRET|_TOKEN|_KEY)$/i, 'api-key'],\n  [/^(MAIL_|SMTP_|SENDGRID_|MAILGUN_)/i, 'mail'],\n  [/^(S3_|AWS_|GCS_|STORAGE_|CLOUDINARY_)/i, 'storage'],\n  [/^(APP_|VITE_|NEXT_PUBLIC_|NUXT_)/i, 'app'],\n];\n\nexport function classifyEnvKey(key: string): EnvCategory {\n  for (const [pattern, category] of CATEGORY_PATTERNS) {\n    if (pattern.test(key)) return category;\n  }\n  return 'unknown';\n}"
+    },
+    {
+      "order": 4,
+      "action": "Implementar EnvAdapter",
+      "file": "packages/context-adapter-env/src/adapter.ts",
+      "detail": "El adaptador debe:\n1. Buscar .env.example o .env.template → definir las 'required keys'\n2. Buscar .env y .env.local → definir las 'present keys'\n3. Calcular: missingRequired (en example pero no en .env), undocumented (en .env pero no en example)\n4. Clasificar todas las keys por categoría\n5. Retornar ContextData con toda esta info pero SIN ningún valor\n\nEstructura del data:\n{\n  requiredKeys: string[],         // de .env.example\n  presentKeys: string[],          // de .env (solo keys)\n  missingRequired: string[],      // en example pero no en .env\n  undocumented: string[],         // en .env pero no en example\n  byCategory: Record<EnvCategory, string[]>,  // clasificadas\n  gitignoreProtected: boolean,    // si .env está en .gitignore\n}"
+    },
+    {
+      "order": 5,
+      "action": "Crear index.ts y tests",
+      "detail": "Tests usando archivos .env temporales (writFileSync en tmpdir):\n- .env con DATABASE_URL y JWT_SECRET → clasificados como 'database' y 'auth'\n- .env.example con APP_NAME → requiredKeys incluye APP_NAME\n- .env sin APP_NAME → missingRequired=['APP_NAME']\n- .env con SECRET_VALUE no en example → undocumented=['SECRET_VALUE']\n- NUNCA verificar que los valores son correctos, solo las keys"
+    },
+    {
+      "order": 6,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test"
+    }
+  ],
+  "acceptance_criteria": [
+    "EnvAdapter implementa ContextSource",
+    "El output NUNCA contiene valores de variables de entorno",
+    "missingRequired contiene variables en .env.example no presentes en .env",
+    "byCategory clasifica correctamente DATABASE_URL como 'database' y JWT_SECRET como 'auth'",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "La restricción más importante: cero valores de env en el output. Implementar env-parser.ts primero de forma aislada y verificar que nunca captura el lado derecho del '=' antes de integrar al adaptador.",
+    "claude_code": "Prueba env-parser.ts con un string de test antes de usarlo en producción. El regex /^[A-Z_][A-Z0-9_]*$/ valida que solo se capturen keys con formato válido.",
+    "copilot": "Mantén abierto el check gitignore.check.ts de context-adapter-iso-27001 como referencia para la verificación de .gitignore.",
+    "codex": "Implementa env-parser.ts primero de forma completamente aislada. Verifica con un unit test que nunca captura valores. Luego integra al adaptador."
+  },
+  "outputs": [
+    "packages/context-adapter-env/ (nuevo paquete)",
+    "packages/context-adapter-env/src/adapter.ts",
+    "packages/context-adapter-env/src/env-parser.ts",
+    "packages/context-adapter-env/src/env-classifier.ts",
+    "packages/context-adapter-env/src/index.ts",
+    "packages/context-adapter-env/src/__tests__/adapter.test.ts",
+    "packages/context-adapter-env/package.json",
+    "packages/context-adapter-env/tsconfig.json"
+  ]
+}

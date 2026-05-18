@@ -1,0 +1,104 @@
+{
+  "$schema": "../schema.json",
+  "id": "p3-t01",
+  "title": "Adaptador Git: contexto del repositorio y estado actual",
+  "description": "Crear el adaptador GitAdapter que implementa ContextSource y recolecta información estructurada del repositorio git: rama actual, commits recientes, autores, archivos modificados y estado del working tree. Provee contexto de desarrollo en curso para que el agente entienda en qué está trabajando el equipo.",
+  "phase": 3,
+  "version_target": "0.4.0",
+  "priority": "high",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["git", "adapter", "context-source", "version-control"],
+  "iso_alignment": [
+    "ISO/IEC/IEEE 12207 - Configuration Management Process",
+    "ISO/IEC 27001:2022 - A.8.32 Change Management"
+  ],
+  "dependencies": ["p1-t01", "p1-t02", "p1-t03"],
+  "context": {
+    "why": "El contexto de git es fundamental para cualquier agente que trabaje en un repositorio activo: saber en qué rama estamos, qué se cambió recientemente y quiénes contribuyen ayuda al agente a dar sugerencias consistentes con el trabajo en curso.",
+    "current_state": "Solo existe GenericFsAdapter que escanea el filesystem. No hay ningún adaptador que lea información de git.",
+    "files_to_read": [
+      "packages/context-core/src/types.ts",
+      "packages/context-adapter-generic-fs/src/adapter.ts",
+      "packages/context-adapter-generic-fs/package.json"
+    ],
+    "key_concepts": [
+      "Usar child_process.execSync o spawnSync de Node.js para ejecutar comandos git",
+      "Manejar el caso donde el directorio no es un repositorio git (retornar señal de ausencia, no lanzar error)",
+      "Los comandos git deben correr con cwd apuntando a projectRoot",
+      "Sanitizar todos los outputs de git antes de incluirlos en el contexto (strings, no objetos raw)",
+      "Los commits recientes deben incluir: hash corto, mensaje, autor, fecha relativa"
+    ],
+    "constraints": [
+      "No leer el contenido de archivos git object store (solo metadatos)",
+      "Limitar commits recientes a un máximo configurable (default: 10)",
+      "Si git no está disponible en el sistema, retornar señal de ausencia gracefully",
+      "No exponer credenciales git (remote URLs con tokens, etc.)",
+      "Sanitizar el remote URL para no exponer tokens: 'https://user:TOKEN@github.com/...' → 'https://github.com/...'"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Crear estructura del paquete context-adapter-git",
+      "detail": "packages/context-adapter-git/\n  src/\n    adapter.ts\n    git-runner.ts    (abstracción sobre child_process)\n    index.ts\n    __tests__/\n      adapter.test.ts\n      git-runner.test.ts\n  package.json\n  tsconfig.json"
+    },
+    {
+      "order": 2,
+      "action": "Crear git-runner.ts: abstracción sobre comandos git",
+      "file": "packages/context-adapter-git/src/git-runner.ts",
+      "detail": "Clase GitRunner que encapsula la ejecución de comandos:\n\nexport class GitRunner {\n  constructor(private readonly cwd: string) {}\n\n  private run(args: string[]): string | null {\n    try {\n      return execSync(`git ${args.join(' ')}`, {\n        cwd: this.cwd,\n        encoding: 'utf-8',\n        stdio: ['pipe', 'pipe', 'pipe'],\n        timeout: 5000\n      }).trim();\n    } catch {\n      return null;\n    }\n  }\n\n  isGitRepo(): boolean {\n    return this.run(['rev-parse', '--git-dir']) !== null;\n  }\n\n  getCurrentBranch(): string | null {\n    return this.run(['branch', '--show-current']);\n  }\n\n  getRecentCommits(limit: number): CommitInfo[] {\n    const raw = this.run(['log', `--max-count=${limit}`, '--pretty=format:%h|%an|%ar|%s']);\n    if (!raw) return [];\n    return raw.split('\\n').map(line => {\n      const [hash, author, date, ...msgParts] = line.split('|');\n      return { hash, author, date, message: msgParts.join('|') };\n    });\n  }\n\n  getStatus(): string[] {  // lista de archivos con cambios\n    const raw = this.run(['status', '--porcelain']);\n    return raw ? raw.split('\\n').filter(Boolean) : [];\n  }\n\n  getRemoteUrl(): string | null {\n    const raw = this.run(['remote', 'get-url', 'origin']);\n    if (!raw) return null;\n    // Sanitizar tokens de la URL\n    return raw.replace(/https:\\/\\/[^@]+@/, 'https://');\n  }\n\n  getContributors(): string[] {\n    const raw = this.run(['log', '--pretty=format:%an', '--no-duplicates']);\n    if (!raw) return [];\n    return [...new Set(raw.split('\\n').filter(Boolean))];\n  }\n}"
+    },
+    {
+      "order": 3,
+      "action": "Definir tipos internos del adaptador",
+      "file": "packages/context-adapter-git/src/adapter.ts",
+      "detail": "interface CommitInfo {\n  hash: string;\n  author: string;\n  date: string;\n  message: string;\n}\n\ninterface GitContextData {\n  isGitRepo: boolean;\n  currentBranch: string | null;\n  recentCommits: CommitInfo[];\n  modifiedFiles: string[];\n  contributors: string[];\n  remoteUrl: string | null;\n}"
+    },
+    {
+      "order": 4,
+      "action": "Implementar GitAdapter como ContextSource",
+      "file": "packages/context-adapter-git/src/adapter.ts",
+      "detail": "export interface GitAdapterOptions {\n  projectRoot: string;\n  maxCommits?: number;  // default: 10\n}\n\nexport class GitAdapter implements ContextSource {\n  private runner: GitRunner;\n  private maxCommits: number;\n\n  constructor(options: GitAdapterOptions) {\n    this.runner = new GitRunner(path.resolve(options.projectRoot));\n    this.maxCommits = options.maxCommits ?? 10;\n  }\n\n  getName(): string { return 'GitAdapter'; }\n\n  async collect(): Promise<ContextData> {\n    const isGitRepo = this.runner.isGitRepo();\n\n    const data: GitContextData = {\n      isGitRepo,\n      currentBranch: isGitRepo ? this.runner.getCurrentBranch() : null,\n      recentCommits: isGitRepo ? this.runner.getRecentCommits(this.maxCommits) : [],\n      modifiedFiles: isGitRepo ? this.runner.getStatus() : [],\n      contributors: isGitRepo ? this.runner.getContributors() : [],\n      remoteUrl: isGitRepo ? this.runner.getRemoteUrl() : null,\n    };\n\n    return {\n      type: 'git',\n      source: this.getName(),\n      timestamp: new Date().toISOString(),\n      priority: ContextPriority.High,\n      data: data as unknown as Record<string, unknown>,\n    };\n  }\n}"
+    },
+    {
+      "order": 5,
+      "action": "Crear index.ts",
+      "file": "packages/context-adapter-git/src/index.ts",
+      "detail": "export { GitAdapter } from './adapter';\nexport type { GitAdapterOptions } from './adapter';"
+    },
+    {
+      "order": 6,
+      "action": "Escribir tests para GitRunner y GitAdapter",
+      "file": "packages/context-adapter-git/src/__tests__/adapter.test.ts",
+      "detail": "Tests:\n- GitAdapter en un directorio sin git → isGitRepo=false, arrays vacíos\n- GitAdapter en el repositorio actual → isGitRepo=true, currentBranch es string\n- getRecentCommits() retorna objetos con hash, author, date, message\n- URL con token es sanitizada (no contiene '@' con credenciales)\n- getStatus() retorna array de strings (puede estar vacío en repo limpio)\n\nUsar el repositorio actual (process.cwd()) para los tests que requieren un repo real."
+    },
+    {
+      "order": 7,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test"
+    }
+  ],
+  "acceptance_criteria": [
+    "GitAdapter implementa ContextSource correctamente",
+    "En un directorio sin git, isGitRepo=false y no lanza excepciones",
+    "La URL remote no contiene credenciales/tokens",
+    "Los commits recientes tienen formato { hash, author, date, message }",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "El GitRunner debe envolver todos los comandos git en try/catch y retornar null en caso de error. Nunca propagar errores de git hacia arriba. La robustez es más importante que la completitud del output.",
+    "claude_code": "Implementa primero git-runner.ts y prueba cada método con Bash antes de usarlos en el adaptador. Asegúrate de que el timeout de 5000ms en execSync evita bloqueos.",
+    "copilot": "Abre context-adapter-generic-fs/src/adapter.ts como referencia del patrón ContextSource. Los tipos ContextData y ContextSource vienen de @csantisgallegos/context-core.",
+    "codex": "Provee ContextSource y ContextData como contexto. Implementa GitRunner primero de forma independiente, luego el adaptador que lo usa."
+  },
+  "outputs": [
+    "packages/context-adapter-git/ (nuevo paquete)",
+    "packages/context-adapter-git/src/git-runner.ts",
+    "packages/context-adapter-git/src/adapter.ts",
+    "packages/context-adapter-git/src/index.ts",
+    "packages/context-adapter-git/src/__tests__/adapter.test.ts",
+    "packages/context-adapter-git/package.json",
+    "packages/context-adapter-git/tsconfig.json"
+  ]
+}

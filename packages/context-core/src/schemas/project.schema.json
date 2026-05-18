@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProjectContext",
+  "description": "Identidad y configuración base del proyecto. Generado por 'context init', completado por el developer.",
+  "type": "object",
+  "required": ["id", "name", "description"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Slug único del proyecto (ej: mi-proyecto)"
+    },
+    "name": {
+      "type": "string",
+      "description": "Nombre legible del proyecto"
+    },
+    "description": {
+      "type": "string",
+      "description": "Qué hace este proyecto en una oración"
+    },
+    "version": {
+      "type": "string",
+      "description": "Versión actual del proyecto"
+    },
+    "language": {
+      "type": "string",
+      "enum": ["es", "en"],
+      "default": "es",
+      "description": "Idioma principal del equipo"
+    },
+    "domain": {
+      "type": "string",
+      "description": "Dominio de negocio: ej. gestion-publica, ecommerce, saas, fintech"
+    },
+    "agents": {
+      "type": "array",
+      "description": "Nombres de perfiles de agente en context/agents/ (sin extensión .json)",
+      "items": {
+        "type": "string"
+      },
+      "default": ["developer"]
+    }
+  }
+}

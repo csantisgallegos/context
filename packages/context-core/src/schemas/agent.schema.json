@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentProfile",
+  "description": "Perfil de un agente de IA que trabaja en este proyecto. Define identidad, capacidades y restricciones. Vive en context/agents/.",
+  "type": "object",
+  "required": ["id", "name", "role", "capabilities", "restrictions"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Identificador único del agente (ej: developer, reviewer)"
+    },
+    "name": {
+      "type": "string",
+      "description": "Nombre descriptivo del agente"
+    },
+    "role": {
+      "type": "string",
+      "enum": ["developer", "reviewer", "architect", "security-auditor", "qa-engineer", "devops", "doc-writer"],
+      "description": "Rol del agente. Determina qué tipo de trabajo realiza."
+    },
+    "capabilities": {
+      "type": "array",
+      "description": "Qué puede hacer este agente en este proyecto",
+      "items": {
+        "type": "string",
+        "enum": ["read-code", "write-code", "run-tests", "run-commands", "read-docs", "write-docs", "security-review", "architecture-review"]
+      }
+    },
+    "scope": {
+      "type": "object",
+      "description": "Archivos que el agente puede y no puede tocar",
+      "properties": {
+        "file_patterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Globs de archivos que puede modificar"
+        },
+        "excluded_patterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Globs de archivos que nunca debe tocar"
+        }
+      }
+    },
+    "restrictions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Reglas explícitas de lo que el agente NO puede hacer en este proyecto"
+    },
+    "instructions": {
+      "type": "string",
+      "description": "Instrucciones adicionales en lenguaje natural para este agente en este proyecto específico"
+    }
+  }
+}

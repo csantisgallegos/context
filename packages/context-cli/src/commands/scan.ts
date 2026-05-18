@@ -3,52 +3,68 @@ import * as path from 'path';
 import { ContextEngine } from '@csantisgallegos/context-core';
 import { GenericFsAdapter } from '@csantisgallegos/context-adapter-generic-fs';
 
-/**
- * Options for the scan command
- */
 interface ScanOptions {
   projectRoot: string;
+  legacy?: boolean;
 }
 
-/**
- * Execute the scan command
- */
 export async function scan(options: ScanOptions): Promise<void> {
   try {
-    console.log(`Scanning project at: ${options.projectRoot}`);
+    console.log(`Escaneando proyecto en: ${options.projectRoot}`);
 
-    // Create context engine and add file system adapter
     const engine = new ContextEngine();
     const fsAdapter = new GenericFsAdapter({
       projectRoot: options.projectRoot,
     });
-
     engine.addSource(fsAdapter);
 
-    // Generate outputs
-    console.log('Collecting context...');
-    const jsonOutput = await engine.toJSON();
-    const markdownOutput = await engine.toMarkdown();
+    const contextDir = path.join(options.projectRoot, 'context');
+    const hasContextDir = fs.existsSync(contextDir);
 
-    // Create output directory
-    const outputDir = path.join(options.projectRoot, 'context');
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
+    if (!hasContextDir) {
+      console.warn('⚠ context/ no encontrado. Corre primero: context init --project-root=.');
     }
 
-    // Write JSON file
-    const jsonPath = path.join(outputDir, 'context.json');
-    fs.writeFileSync(jsonPath, jsonOutput, 'utf-8');
-    console.log(`✓ JSON output written to: ${jsonPath}`);
+    // Salida granular en signals/ (solo si context/ existe)
+    if (hasContextDir) {
+      const signalsDir = path.join(contextDir, 'signals');
+      fs.mkdirSync(signalsDir, { recursive: true });
 
-    // Write Markdown file
-    const mdPath = path.join(outputDir, 'context.md');
-    fs.writeFileSync(mdPath, markdownOutput, 'utf-8');
-    console.log(`✓ Markdown output written to: ${mdPath}`);
+      const signals = await engine.toSignals();
+      for (const [filename, data] of signals.entries()) {
+        const filePath = path.join(signalsDir, filename);
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+        console.log(`✓ Signal: context/signals/${filename}`);
+      }
 
-    console.log('\nContext scan completed successfully!');
+      // Regenerar AGENT.md siempre (es el único auto-generado en la raíz)
+      const agentMd = await engine.toAgentMd(options.projectRoot);
+      fs.writeFileSync(path.join(options.projectRoot, 'AGENT.md'), agentMd, 'utf-8');
+      console.log('✓ AGENT.md actualizado');
+    }
+
+    // Salida legacy (context.json + context.md) — backwards compat, deprecar en v0.4.0
+    const writeLegacy = options.legacy !== false;
+    if (writeLegacy) {
+      const outputDir = hasContextDir ? contextDir : path.join(options.projectRoot, 'context');
+      if (!hasContextDir) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
+
+      const jsonOutput = await engine.toJSON();
+      const jsonPath = path.join(outputDir, 'context.json');
+      fs.writeFileSync(jsonPath, jsonOutput, 'utf-8');
+      console.log(`✓ context.json (legacy): ${path.relative(options.projectRoot, jsonPath).replace(/\\/g, '/')}`);
+
+      const markdownOutput = await engine.toMarkdown();
+      const mdPath = path.join(outputDir, 'context.md');
+      fs.writeFileSync(mdPath, markdownOutput, 'utf-8');
+      console.log(`✓ context.md (legacy): ${path.relative(options.projectRoot, mdPath).replace(/\\/g, '/')}`);
+    }
+
+    console.log('\n✓ Scan completado.');
   } catch (error) {
-    console.error('Error during scan:', error);
+    console.error('Error durante el scan:', error);
     process.exit(1);
   }
 }

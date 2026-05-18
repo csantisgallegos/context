@@ -1,0 +1,140 @@
+{
+  "$schema": "../schema.json",
+  "id": "p0-t02",
+  "title": "Comando 'context init': arrancar context/ en cualquier proyecto",
+  "description": "Crear el comando 'context init' en el CLI que genera la estructura inicial de context/ dentro de cualquier proyecto. Es el punto de entrada al flujo: sin este comando, el developer tendría que crear los archivos manualmente. El init genera los archivos base con contenido de ejemplo útil, detecta el stack del proyecto para pre-completar project.json, y deja todo listo para que el agente de IA pueda leer el contexto en la primera sesión.",
+  "phase": 0,
+  "version_target": "0.2.0",
+  "priority": "critical",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["cli", "init", "scaffold", "workflow", "foundation"],
+  "iso_alignment": [
+    "ISO/IEC/IEEE 12207 - Project Planning Process",
+    "ISO/IEC 25010 - Usability"
+  ],
+  "dependencies": ["p0-t01"],
+  "context": {
+    "why": "El primer problema de fricción es el arranque: si el developer tiene que crear a mano 8 archivos con la estructura correcta, el 90% no lo hace. 'context init' elimina esa fricción: un comando, proyecto listo. Es análogo a 'git init' o 'npm init': baja la barrera de entrada a segundos.",
+    "current_state": "El CLI solo tiene el comando 'context scan'. Para usar la nueva estructura context/, el developer tendría que crear manualmente: context/project.json, context/architecture.md, context/conventions.md, context/tasks/active/, context/agents/, context/decisions/, context/signals/. Eso no es viable sin un comando de init.",
+    "files_to_read": [
+      "packages/context-cli/src/cli.ts",
+      "packages/context-cli/src/commands/scan.ts",
+      "packages/context-core/src/schemas/project.schema.json",
+      "packages/context-core/src/schemas/agent.schema.json"
+    ],
+    "key_concepts": [
+      "El init es NO destructivo: si context/ ya existe, no sobreescribe los archivos existentes (solo agrega los que faltan)",
+      "El init detecta automáticamente: nombre del proyecto (de package.json), stack (Next.js, Laravel, etc.), idioma del README",
+      "Los archivos generados tienen contenido de ejemplo útil, no placeholders vacíos como 'TODO: completar'",
+      "El init genera el perfil de agente por defecto (agents/developer.json) con scope permisivo que el developer puede restringir después",
+      "El init NO corre context scan — eso es un paso explícito posterior que el developer hace cuando quiere actualizar las señales técnicas",
+      "El CLAUDE.md o el archivo de entrada del agente se genera con una nota clara: 'Actualiza las señales con: context scan'"
+    ],
+    "constraints": [
+      "Si context/ ya existe con archivos, NO sobreescribir ninguno (agregar solo los que faltan)",
+      "El init debe completar en menos de 2 segundos (no hacer scan completo, solo leer package.json y README)",
+      "Los archivos generados deben tener comentarios guía en español para que el developer sepa qué escribir",
+      "No requerir configuración previa: 'context init' en cualquier directorio debe funcionar",
+      "Agregar context/ a .gitignore solo si el developer lo pide explícitamente (por defecto NO, el context debe versionarse)"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Crear el archivo de comando init en el CLI",
+      "file": "packages/context-cli/src/commands/init.ts",
+      "detail": "Estructura del comando:\n\nexport interface InitOptions {\n  projectRoot: string;\n  force: boolean;  // sobreescribir si ya existe\n}\n\nexport async function init(options: InitOptions): Promise<void> {\n  console.log('Inicializando context/ en:', options.projectRoot);\n  // 1. Detectar stack básico del proyecto\n  // 2. Crear carpetas\n  // 3. Generar archivos base\n  // 4. Mostrar resumen de lo generado\n  // 5. Mostrar siguiente paso: 'Corre context scan para actualizar las señales técnicas'\n}"
+    },
+    {
+      "order": 2,
+      "action": "Implementar detección básica del proyecto para pre-completar archivos",
+      "file": "packages/context-cli/src/commands/init.ts",
+      "detail": "Leer solo package.json (si existe) para obtener: nombre, versión, descripción. Leer README.md (si existe) para inferir idioma del proyecto. NO usar los adaptadores completos — solo fs.readFileSync para ser rápido.\n\nconst pkg = readJsonSafe(path.join(root, 'package.json'));\nconst projectName = pkg?.name ?? path.basename(root);\nconst projectDescription = pkg?.description ?? '';"
+    },
+    {
+      "order": 3,
+      "action": "Implementar creación de carpetas",
+      "file": "packages/context-cli/src/commands/init.ts",
+      "detail": "Carpetas a crear (todas con fs.mkdirSync con recursive:true):\n- context/\n- context/tasks/active/\n- context/tasks/done/\n- context/decisions/\n- context/agents/\n- context/signals/\n\nVerificar antes de crear: si context/ ya existe, listar qué archivos tiene para saber qué agregar."
+    },
+    {
+      "order": 4,
+      "action": "Generar context/project.json con datos detectados",
+      "file": "packages/context-cli/src/commands/init.ts",
+      "detail": "Solo crear si no existe. Contenido:\n{\n  \"id\": \"{slug-del-proyecto}\",\n  \"name\": \"{nombre detectado de package.json}\",\n  \"description\": \"{descripción de package.json o vacío}\",\n  \"version\": \"{versión de package.json}\",\n  \"language\": \"es\",\n  \"domain\": \"(completar: ej. gestion-publica, ecommerce, saas)\",\n  \"agents\": [\"developer\"]\n}"
+    },
+    {
+      "order": 5,
+      "action": "Generar context/architecture.md con estructura guiada",
+      "file": "packages/context-cli/src/commands/init.ts",
+      "detail": "Solo crear si no existe. El archivo debe tener secciones con comentarios guía para que el developer sepa qué escribir:\n\n# Arquitectura — {nombre del proyecto}\n\n> Describe cómo está estructurado el proyecto. El agente de IA leerá esto al inicio de cada sesión.\n\n## Estructura de carpetas\n\n(Describe las carpetas principales y su propósito)\n\n## Capas y módulos\n\n(Describe las capas lógicas: API, servicios, UI, etc.)\n\n## Patrones de diseño usados\n\n(Describe los patrones que el equipo usa: Repository, Service Layer, etc.)\n\n## Dependencias principales\n\n(Describe las dependencias clave y por qué se usan)"
+    },
+    {
+      "order": 6,
+      "action": "Generar context/conventions.md con estructura guiada",
+      "file": "packages/context-cli/src/commands/init.ts",
+      "detail": "Solo crear si no existe. Secciones:\n\n# Convenciones — {nombre del proyecto}\n\n> El agente de IA respetará estas convenciones al modificar código.\n\n## Lenguaje\n\n## Nombrado\n\n## Estructura de archivos\n\n## Lo que NO hacer\n\n## Patrones aprobados"
+    },
+    {
+      "order": 7,
+      "action": "Generar context/agents/developer.json con scope por defecto",
+      "file": "packages/context-cli/src/commands/init.ts",
+      "detail": "Solo crear si no existe. Perfil permisivo por defecto que el developer restringe:\n{\n  \"id\": \"developer\",\n  \"name\": \"Agente de Desarrollo\",\n  \"role\": \"developer\",\n  \"capabilities\": [\"read-code\", \"write-code\", \"run-tests\", \"read-docs\"],\n  \"scope\": {\n    \"file_patterns\": [\"src/**\", \"app/**\", \"lib/**\", \"components/**\"],\n    \"excluded_patterns\": [\".env\", \"*.lock\", \"dist/**\", \"node_modules/**\"]\n  },\n  \"restrictions\": [\n    \"No modificar archivos de configuración de base de datos sin aprobar primero\",\n    \"No instalar dependencias nuevas sin aprobación\",\n    \"No modificar lógica de autenticación sin revisión de seguridad\"\n  ],\n  \"instructions\": \"(Agrega aquí instrucciones específicas para este agente en este proyecto)\"\n}"
+    },
+    {
+      "order": 8,
+      "action": "Generar context/tasks/active/.gitkeep y tarea de ejemplo",
+      "file": "packages/context-cli/src/commands/init.ts",
+      "detail": "Crear una tarea de ejemplo en tasks/active/primera-tarea.json que el developer puede editar o eliminar:\n{\n  \"id\": \"primera-tarea\",\n  \"title\": \"(Reemplaza esto con el título de tu primera tarea)\",\n  \"created\": \"{fecha de hoy}\",\n  \"status\": \"active\",\n  \"context\": {\n    \"why\": \"(Explica por qué es necesaria esta tarea)\",\n    \"background\": \"(Información relevante del proyecto para esta tarea)\"\n  },\n  \"scope\": {\n    \"can_modify\": [\"src/**\"],\n    \"cannot_modify\": [\".env\", \"database/migrations/**\"],\n    \"must_ask_before\": [\"cambiar schema de base de datos\", \"agregar dependencias\"]\n  },\n  \"steps\": [\n    \"(Paso 1: describe qué debe hacer el agente)\",\n    \"(Paso 2)\"\n  ],\n  \"done_when\": [\n    \"(Condición verificable de que la tarea está completa)\"\n  ]\n}"
+    },
+    {
+      "order": 9,
+      "action": "Generar el archivo de entrada del agente (AGENT.md) en la raíz del proyecto",
+      "file": "packages/context-cli/src/commands/init.ts",
+      "detail": "Crear AGENT.md (nombre genérico, no acoplado a ningún agente específico) en la raíz del proyecto:\n\n# {nombre del proyecto}\n\n> Contexto gestionado por @csantisgallegos/context\n> Para actualizar señales técnicas: `context scan --project-root=.`\n\n## Antes de empezar, lee:\n- Arquitectura: [context/architecture.md](./context/architecture.md)\n- Convenciones: [context/conventions.md](./context/conventions.md)\n- Tu perfil: [context/agents/developer.json](./context/agents/developer.json)\n- Tarea activa: ver context/tasks/active/\n\n## Estado del proyecto\n_(Las señales técnicas aún no han sido generadas. Corre `context scan` para actualizarlas.)_\n\n## Comandos\n```bash\n# (Se completarán automáticamente con context scan)\n```\n\nNOTA: Los agentes compatibles con instrucciones automáticas (como Claude Code) pueden configurarse para leer este archivo al inicio de cada sesión."
+    },
+    {
+      "order": 10,
+      "action": "Mostrar resumen al finalizar y siguiente paso",
+      "file": "packages/context-cli/src/commands/init.ts",
+      "detail": "Al terminar, mostrar:\n\n✓ context/ inicializado en: {projectRoot}\n\nArchivos generados:\n  context/project.json\n  context/architecture.md\n  context/conventions.md\n  context/agents/developer.json\n  context/tasks/active/primera-tarea.json\n  AGENT.md\n\nSiguientes pasos:\n  1. Edita context/architecture.md con la arquitectura real del proyecto\n  2. Edita context/conventions.md con las reglas del equipo\n  3. Edita context/tasks/active/primera-tarea.json con la tarea actual\n  4. Corre: context scan --project-root=. (actualiza señales técnicas)\n  5. Abre tu agente de IA apuntando a este directorio"
+    },
+    {
+      "order": 11,
+      "action": "Registrar el comando init en el CLI principal",
+      "file": "packages/context-cli/src/cli.ts",
+      "detail": "Agregar al programa de Commander:\n\nprogram\n  .command('init')\n  .description('Inicializar la carpeta context/ en un proyecto')\n  .option('--project-root <path>', 'Directorio del proyecto', '.')\n  .option('--force', 'Sobreescribir archivos existentes', false)\n  .action(init);"
+    },
+    {
+      "order": 12,
+      "action": "Escribir tests para el comando init",
+      "file": "packages/context-cli/src/__tests__/init.test.ts",
+      "detail": "Tests con directorio temporal:\n- init en directorio vacío → crea todos los archivos esperados\n- init en directorio con package.json → pre-completa project.json con nombre y versión\n- init en directorio que ya tiene context/ → no sobreescribe archivos existentes\n- init con --force → sobreescribe\n- Los archivos generados son JSON válido (project.json, agents/developer.json)\n- AGENT.md existe y tiene el nombre del proyecto"
+    },
+    {
+      "order": 13,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test"
+    }
+  ],
+  "acceptance_criteria": [
+    "'context init' crea la estructura context/ completa en menos de 2 segundos",
+    "Si context/ ya existe, no sobreescribe archivos existentes",
+    "project.json se pre-completa con datos de package.json si existe",
+    "AGENT.md se crea en la raíz con instrucciones genéricas para cualquier agente de IA",
+    "El resumen final muestra los pasos siguientes de forma clara",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "El comando init es el primer contacto del developer con la herramienta. Debe ser rápido, claro y no aterrador. Los archivos generados deben tener contenido de ejemplo útil — no TODOs vacíos. El mensaje de éxito debe indicar exactamente qué hacer después.",
+    "claude_code": "Lee cli.ts y scan.ts como referencia del patrón existente. Implementa init.ts siguiendo el mismo patrón. Prueba el comando manualmente en un directorio temporal antes de escribir los tests.",
+    "copilot": "Mantén scan.ts abierto como referencia de estructura. El comando init es más simple que scan: no usa adaptadores, solo crea archivos.",
+    "codex": "Implementa primero la función que crea las carpetas, luego cada función que genera un archivo. Prueba que JSON.parse(contenidoGenerado) no falla para los archivos JSON."
+  },
+  "outputs": [
+    "packages/context-cli/src/commands/init.ts (nuevo)",
+    "packages/context-cli/src/cli.ts (modificado: registrar comando init)",
+    "packages/context-cli/src/__tests__/init.test.ts (nuevo)"
+  ]
+}

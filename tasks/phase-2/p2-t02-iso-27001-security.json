@@ -1,0 +1,127 @@
+{
+  "$schema": "../schema.json",
+  "id": "p2-t02",
+  "title": "Adaptador ISO 27001/27002: señales de seguridad de la información",
+  "description": "Crear el adaptador SecurityStandardsAdapter que evalúa el proyecto contra controles clave de ISO/IEC 27001:2022 e ISO/IEC 27002:2022. Detecta patrones de riesgo en: gestión de secretos, configuración de accesos, logging, dependencias vulnerables y configuración del repositorio.",
+  "phase": 2,
+  "version_target": "0.3.0",
+  "priority": "high",
+  "status": "pending",
+  "estimated_effort": "large",
+  "tags": ["iso-27001", "iso-27002", "security", "adapter", "standards"],
+  "iso_alignment": [
+    "ISO/IEC 27001:2022",
+    "ISO/IEC 27002:2022"
+  ],
+  "dependencies": ["p2-t01"],
+  "context": {
+    "why": "La mayoría de los proyectos web tienen problemas de seguridad detectables estáticamente: secrets en código, .env sin .gitignore, dependencias no actualizadas. Este adaptador convierte esas señales en contexto accionable para el agente, de modo que cualquier IA que trabaje en el proyecto sea consciente de los riesgos de seguridad existentes.",
+    "current_state": "No existe ningún adaptador de seguridad. El paquete context-standards (p2-t01) ya define StandardSource y StandardSignal como base.",
+    "files_to_read": [
+      "packages/context-standards/src/types.ts",
+      "packages/context-standards/src/engine.ts",
+      "packages/context-adapter-generic-fs/src/adapter.ts"
+    ],
+    "key_concepts": [
+      "ISO 27001 Annex A.8.12: prevención de fuga de información (detectar secrets en código)",
+      "ISO 27001 A.5.14: transferencia de información (detectar si .env está en .gitignore)",
+      "ISO 27001 A.8.8: gestión de vulnerabilidades técnicas (npm audit / dependencias)",
+      "ISO 27002 8.3: restricción de acceso (detectar archivos de config de auth presentes)",
+      "El adaptador NUNCA debe leer el contenido de los valores en .env, solo las keys",
+      "Los patrones de detección son heurísticos, no garantizan cumplimiento real",
+      "Cada señal debe indicar claramente si passed=true (señal positiva) o passed=false (riesgo detectado)"
+    ],
+    "constraints": [
+      "NUNCA leer ni exponer valores de variables de entorno, solo sus nombres (keys)",
+      "NUNCA incluir contraseñas, tokens ni secrets en las señales, solo su presencia o ausencia",
+      "Los checks de patrones en código deben ser solo en archivos de texto, no binarios",
+      "Limitar el scan de código a extensiones: .ts, .js, .py, .php, .env*, .json, .yaml, .yml",
+      "El adaptador debe ser tolerante a fallas: si un check falla, registrar una señal de warning, no lanzar excepción"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Crear el paquete context-adapter-iso-27001 dentro de packages/",
+      "detail": "Estructura:\npackages/context-adapter-iso-27001/\n  src/\n    adapter.ts\n    checks/\n      secrets.check.ts\n      gitignore.check.ts\n      dependencies.check.ts\n      auth-config.check.ts\n    index.ts\n    __tests__/\n      adapter.test.ts\n  package.json\n  tsconfig.json"
+    },
+    {
+      "order": 2,
+      "action": "Crear package.json del adaptador",
+      "file": "packages/context-adapter-iso-27001/package.json",
+      "detail": "{\n  \"name\": \"@csantisgallegos/context-adapter-iso-27001\",\n  \"version\": \"0.1.0\",\n  \"description\": \"ISO 27001/27002 security signals adapter for context-standards\",\n  \"main\": \"dist/index.js\",\n  \"types\": \"dist/index.d.ts\",\n  \"scripts\": {\n    \"build\": \"tsc -b\",\n    \"clean\": \"rm -rf dist *.tsbuildinfo\",\n    \"test\": \"vitest run\"\n  },\n  \"dependencies\": {\n    \"@csantisgallegos/context-standards\": \"*\"\n  },\n  \"devDependencies\": {\n    \"typescript\": \"^5.3.3\",\n    \"vitest\": \"*\"\n  },\n  \"license\": \"MIT\"\n}"
+    },
+    {
+      "order": 3,
+      "action": "Implementar check: secrets en código fuente",
+      "file": "packages/context-adapter-iso-27001/src/checks/secrets.check.ts",
+      "detail": "Buscar patrones de secrets hardcodeados usando regex en archivos de código:\n- Patrones: /password\\s*=\\s*['\"][^'\"]{4,}/i, /api_key\\s*=\\s*['\"][^'\"]{10,}/i, /secret\\s*=\\s*['\"][^'\"]{10,}/i, /token\\s*=\\s*['\"][^'\"]{10,}/i\n- Ignorar archivos: *.test.ts, *.spec.ts, *mock*, *fixture*\n- Ignorar líneas con: process.env, os.environ, getenv, env.\n- Retornar: StandardSignal con standard='ISO/IEC 27001:2022', clause='A.8.12', severity='critical', passed=false si se detecta algún patrón\n- Si no se detecta nada: passed=true, severity='info'\n- Evidence: incluir solo el nombre del archivo y el número de línea, NUNCA el valor"
+    },
+    {
+      "order": 4,
+      "action": "Implementar check: .env en .gitignore",
+      "file": "packages/context-adapter-iso-27001/src/checks/gitignore.check.ts",
+      "detail": "Verificar:\n1. Si existe .env en el proyecto root\n2. Si .gitignore existe y contiene '.env' o '*.env'\n3. Si .env.example o .env.template existe (buena práctica)\n\nSeñales:\n- .env existe pero no está en .gitignore: severity=critical, passed=false\n- .env está en .gitignore: severity=info, passed=true\n- .env.example existe: severity=info, passed=true (buena práctica documentada)\n- No existe .env: severity=info, passed=true"
+    },
+    {
+      "order": 5,
+      "action": "Implementar check: dependencias desactualizadas",
+      "file": "packages/context-adapter-iso-27001/src/checks/dependencies.check.ts",
+      "detail": "Solo verificar la presencia de package.json y si existe package-lock.json (indica gestión activa de dependencias). NO ejecutar npm audit (requiere red). Señales:\n- package.json existe y tiene dependencias: passed=true, info\n- package-lock.json existe: passed=true (dependency locking activo)\n- No existe package-lock.json: warning (dependencias no bloqueadas)\n- Cláusula: ISO 27001 A.8.8"
+    },
+    {
+      "order": 6,
+      "action": "Implementar check: configuración de autenticación presente",
+      "file": "packages/context-adapter-iso-27001/src/checks/auth-config.check.ts",
+      "detail": "Detectar si existe alguna configuración de autenticación/autorización:\n- Buscar archivos: auth.*, *middleware/auth*, *guard*, *policy*, *rbac*\n- Detectar providers conocidos: next-auth, passport, jwt, sanctum, shield\n- Señal: si no hay evidencia de auth en un proyecto web, severity=warning\n- Cláusula: ISO 27002 8.3"
+    },
+    {
+      "order": 7,
+      "action": "Crear el adaptador principal SecurityStandardsAdapter",
+      "file": "packages/context-adapter-iso-27001/src/adapter.ts",
+      "detail": "Implementa StandardSource:\n\nexport class SecurityStandardsAdapter implements StandardSource {\n  getName(): string { return 'SecurityStandardsAdapter'; }\n  getStandard(): IsoStandard { return 'ISO/IEC 27001:2022'; }\n\n  async evaluate(projectRoot: string): Promise<StandardSignal[]> {\n    const signals: StandardSignal[] = [];\n    // ejecutar cada check y agregar señales\n    signals.push(...await checkSecrets(projectRoot));\n    signals.push(...await checkGitignore(projectRoot));\n    signals.push(...await checkDependencies(projectRoot));\n    signals.push(...await checkAuthConfig(projectRoot));\n    return signals;\n  }\n}"
+    },
+    {
+      "order": 8,
+      "action": "Crear index.ts",
+      "file": "packages/context-adapter-iso-27001/src/index.ts",
+      "detail": "export { SecurityStandardsAdapter } from './adapter';"
+    },
+    {
+      "order": 9,
+      "action": "Escribir tests del adaptador",
+      "file": "packages/context-adapter-iso-27001/src/__tests__/adapter.test.ts",
+      "detail": "Usar un directorio temporal con archivos conocidos:\n- Proyecto con .env sin .gitignore → señal critical sobre gitignore\n- Proyecto con .env en .gitignore → señal passed=true\n- Proyecto con password='hardcoded' en un .ts → señal critical sobre secrets\n- Proyecto limpio → todos los checks pasan\n\nUsar fs.mkdtempSync(tmpdir()) para crear proyectos temporales en tests."
+    },
+    {
+      "order": 10,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test",
+      "detail": "Ambos deben pasar."
+    }
+  ],
+  "acceptance_criteria": [
+    "SecurityStandardsAdapter implementa StandardSource correctamente",
+    "Se detecta secrets hardcodeados (password='abc123') como señal critical",
+    ".env sin .gitignore genera señal critical con clause='A.5.14'",
+    ".env con .gitignore genera señal passed=true",
+    "Ninguna señal expone valores de secrets, solo su presencia/ubicación",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "La seguridad de este adaptador es crítica: NUNCA incluir valores de secrets en el output. Solo paths de archivos y números de línea. Si tienes dudas sobre si incluir un dato, no lo incluyas.",
+    "claude_code": "Lee types.ts de context-standards antes de implementar. Crea primero los checks individuales como funciones puras y luego el adaptador que los orquesta. Usa Bash con grep limitado para probar los patrones regex antes de escribirlos en código.",
+    "copilot": "Mantén context-standards/src/types.ts y context-adapter-generic-fs/src/adapter.ts abiertos como referencia. Indica explícitamente la restricción de no exponer valores.",
+    "codex": "Provee StandardSource y StandardSignal interfaces como contexto. Pide los checks uno por uno, empezando por gitignore.check.ts (el más simple). Verifica la restricción de no exponer secrets en cada check."
+  },
+  "outputs": [
+    "packages/context-adapter-iso-27001/ (nuevo paquete completo)",
+    "packages/context-adapter-iso-27001/src/adapter.ts",
+    "packages/context-adapter-iso-27001/src/checks/secrets.check.ts",
+    "packages/context-adapter-iso-27001/src/checks/gitignore.check.ts",
+    "packages/context-adapter-iso-27001/src/checks/dependencies.check.ts",
+    "packages/context-adapter-iso-27001/src/checks/auth-config.check.ts",
+    "packages/context-adapter-iso-27001/src/index.ts",
+    "packages/context-adapter-iso-27001/src/__tests__/adapter.test.ts"
+  ]
+}

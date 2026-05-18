@@ -1,0 +1,127 @@
+{
+  "$schema": "../schema.json",
+  "id": "p1-t02",
+  "title": "Mejorar tipos base en context-core para soporte multi-agente",
+  "description": "Extender el sistema de tipos de context-core para soportar perfiles de agentes IA, capacidades declaradas, prioridad de contexto y metadata enriquecida. Estos tipos son la base para el soporte multi-agente y la capa ISO de fases posteriores.",
+  "phase": 1,
+  "version_target": "0.2.0",
+  "priority": "critical",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["types", "typescript", "multi-agent", "core"],
+  "iso_alignment": [
+    "ISO/IEC 25010 - Maintainability",
+    "ISO/IEC/IEEE 12207 - Software Design"
+  ],
+  "dependencies": ["p1-t01"],
+  "context": {
+    "why": "Los tipos actuales (ContextSource, ContextData) son mínimos. Para coordinar múltiples agentes IA necesitamos saber quién es el agente, qué puede hacer, y qué partes del contexto son más relevantes para cada rol. Sin estos tipos, no se puede construir la capa de estándares ISO ni los outputs especializados.",
+    "current_state": "types.ts tiene solo ContextSource (interface con getName y collect) y ContextData (type, source, timestamp, data: Record<string,unknown>). engine.ts tiene ContextOutput con contextSpecVersion, generatedAt y contexts[]. No existe concepto de agente, capacidad ni prioridad.",
+    "files_to_read": [
+      "packages/context-core/src/types.ts",
+      "packages/context-core/src/engine.ts",
+      "packages/context-core/src/index.ts"
+    ],
+    "key_concepts": [
+      "Un 'AgentProfile' describe al agente que consumirá el contexto (nombre, rol, capabilities)",
+      "Una 'ContextPriority' indica qué tan importante es una fuente de contexto (critical > high > medium > low)",
+      "El campo 'data' en ContextData hoy es Record<string,unknown>, mejorarlo sin breaking changes",
+      "Backward compatibility: todos los tipos nuevos deben ser opcionales o additivos, no reemplazar los existentes",
+      "Los tipos de agente siguen el patrón: un agente tiene un rol (developer, reviewer, architect, security-auditor) y capacidades (read-code, write-code, run-tests, etc.)"
+    ],
+    "constraints": [
+      "No romper la interface ContextSource existente",
+      "No romper la estructura de ContextData existente (solo agregar campos opcionales)",
+      "Todos los tipos nuevos deben exportarse desde index.ts",
+      "Usar enums de string (no numéricos) para mayor legibilidad en JSON"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Agregar enum ContextPriority a types.ts",
+      "file": "packages/context-core/src/types.ts",
+      "detail": "export enum ContextPriority {\n  Critical = 'critical',\n  High = 'high',\n  Medium = 'medium',\n  Low = 'low'\n}"
+    },
+    {
+      "order": 2,
+      "action": "Agregar tipo AgentRole a types.ts",
+      "file": "packages/context-core/src/types.ts",
+      "detail": "export type AgentRole =\n  | 'developer'\n  | 'reviewer'\n  | 'architect'\n  | 'security-auditor'\n  | 'qa-engineer'\n  | 'devops'\n  | 'generic';"
+    },
+    {
+      "order": 3,
+      "action": "Agregar tipo AgentCapability a types.ts",
+      "file": "packages/context-core/src/types.ts",
+      "detail": "export type AgentCapability =\n  | 'read-code'\n  | 'write-code'\n  | 'run-tests'\n  | 'run-commands'\n  | 'read-docs'\n  | 'write-docs'\n  | 'security-review'\n  | 'architecture-review';"
+    },
+    {
+      "order": 4,
+      "action": "Agregar interface AgentProfile a types.ts",
+      "file": "packages/context-core/src/types.ts",
+      "detail": "export interface AgentProfile {\n  id: string;           // identificador único del agente\n  name: string;         // nombre descriptivo\n  role: AgentRole;\n  capabilities: AgentCapability[];\n  description?: string; // contexto adicional sobre el agente\n  model?: string;       // modelo de IA (ej: 'claude-sonnet-4-6', 'gpt-4o')\n}"
+    },
+    {
+      "order": 5,
+      "action": "Agregar campos opcionales a ContextData",
+      "file": "packages/context-core/src/types.ts",
+      "detail": "Extender ContextData agregando los campos opcionales al final de la interface (no modificar los existentes):\n\npriority?: ContextPriority;  // relevancia de esta fuente\ntags?: string[];             // etiquetas para filtrar\nagentFilter?: AgentRole[];   // roles para los que este contexto es relevante\nmetadata?: Record<string, unknown>; // metadata arbitraria del adaptador"
+    },
+    {
+      "order": 6,
+      "action": "Agregar interface ContextSourceOptions a types.ts",
+      "file": "packages/context-core/src/types.ts",
+      "detail": "Interface opcional para que los adaptadores reciban opciones estándar:\n\nexport interface ContextSourceOptions {\n  priority?: ContextPriority;\n  tags?: string[];\n  agentFilter?: AgentRole[];\n}"
+    },
+    {
+      "order": 7,
+      "action": "Agregar AgentProfile a ContextOutput en engine.ts",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "Agregar campo opcional en ContextOutput:\n\nagent?: AgentProfile;  // perfil del agente que consumirá este contexto\n\nY en el método collectContext(), incluir this.agent en el output si está definido."
+    },
+    {
+      "order": 8,
+      "action": "Agregar método setAgent() a ContextEngine",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "private agent: AgentProfile | undefined;\n\nsetAgent(agent: AgentProfile): void {\n  this.agent = agent;\n}"
+    },
+    {
+      "order": 9,
+      "action": "Exportar todos los tipos nuevos desde index.ts",
+      "file": "packages/context-core/src/index.ts",
+      "detail": "Asegurarse de que el export existente incluya los nuevos tipos:\nexport type { AgentProfile, AgentRole, AgentCapability, ContextSourceOptions } from './types';\nexport { ContextPriority } from './types';"
+    },
+    {
+      "order": 10,
+      "action": "Agregar tests para los nuevos tipos y métodos",
+      "file": "packages/context-core/src/__tests__/engine.test.ts",
+      "detail": "Agregar tests:\n- setAgent() registra el AgentProfile correctamente\n- collectContext() incluye el agent en el output cuando está definido\n- collectContext() no incluye agent cuando no está definido (backward compat)\n- ContextPriority enum tiene los valores esperados"
+    },
+    {
+      "order": 11,
+      "action": "Verificar compilación TypeScript y tests",
+      "command": "npm run build && npm test",
+      "detail": "Ambos deben pasar sin errores. El build verifica que los tipos son correctos, el test verifica el comportamiento."
+    }
+  ],
+  "acceptance_criteria": [
+    "ContextPriority, AgentRole, AgentCapability, AgentProfile, ContextSourceOptions están exportados desde @csantisgallegos/context-core",
+    "ContextData tiene los campos opcionales priority, tags, agentFilter, metadata sin breaking changes",
+    "ContextEngine tiene setAgent() y el output de collectContext() incluye agent cuando fue definido",
+    "npm run build compila sin errores en todos los paquetes",
+    "npm test pasa con 0 fallos",
+    "Un developer puede usar el engine así sin errores TypeScript:\n  engine.setAgent({ id: 'agent-1', name: 'Mi Agente', role: 'developer', capabilities: ['read-code', 'write-code'] })"
+  ],
+  "agent_instructions": {
+    "general": "Lee types.ts y engine.ts completos antes de modificar. Agrega siempre al final de los archivos para minimizar conflictos. Todos los campos nuevos en interfaces existentes deben ser opcionales (?) para mantener backward compatibility.",
+    "claude_code": "Lee primero los 3 archivos de context. Usa Edit para modificar, no Write (para no sobreescribir). Después de cada Edit, verifica que el archivo compile con 'npx tsc --noEmit' en packages/context-core.",
+    "copilot": "Abre types.ts, engine.ts e index.ts en tabs antes de pedir sugerencias. Copilot inferirá mejor el contexto con los 3 archivos visibles.",
+    "codex": "Provee el contenido completo de los 3 archivos como contexto. Pide los cambios en orden: primero types.ts, luego engine.ts, luego index.ts. Verifica tipos antes de continuar."
+  },
+  "outputs": [
+    "packages/context-core/src/types.ts (modificado: ContextPriority, AgentRole, AgentCapability, AgentProfile, ContextSourceOptions, campos opcionales en ContextData)",
+    "packages/context-core/src/engine.ts (modificado: AgentProfile en ContextOutput, setAgent() en ContextEngine)",
+    "packages/context-core/src/index.ts (modificado: exportar nuevos tipos)",
+    "packages/context-core/src/__tests__/engine.test.ts (modificado: tests para nuevos tipos)"
+  ]
+}

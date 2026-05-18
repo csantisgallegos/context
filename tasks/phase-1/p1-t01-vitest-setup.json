@@ -1,0 +1,105 @@
+{
+  "$schema": "../schema.json",
+  "id": "p1-t01",
+  "title": "Configurar Vitest como framework de testing en el monorepo",
+  "description": "El proyecto no tiene ningún test. Esta tarea instala Vitest, configura el workspace para que cada paquete pueda tener sus propios tests, y escribe los primeros tests unitarios para context-core como base de referencia.",
+  "phase": 1,
+  "version_target": "0.2.0",
+  "priority": "critical",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["testing", "vitest", "infrastructure", "monorepo"],
+  "iso_alignment": ["ISO/IEC 25010 - Testability", "ISO/IEC/IEEE 12207 - Verification"],
+  "dependencies": [],
+  "context": {
+    "why": "Sin tests no se puede escalar el proyecto con confianza. Todos los cambios futuros (adaptadores, estándares ISO, nuevos outputs) necesitan una base de testing desde el inicio.",
+    "current_state": "No existe ningún archivo *.test.ts, *.spec.ts, ni configuración de Vitest/Jest en el monorepo. Los package.json tienen el script 'test' definido pero vacío.",
+    "files_to_read": [
+      "package.json",
+      "tsconfig.json",
+      "packages/context-core/package.json",
+      "packages/context-core/src/engine.ts",
+      "packages/context-core/src/types.ts",
+      "packages/context-adapter-generic-fs/package.json",
+      "packages/context-adapter-generic-fs/src/adapter.ts"
+    ],
+    "key_concepts": [
+      "El proyecto usa npm workspaces (definido en el package.json raíz con 'workspaces: [\"packages/*\"]')",
+      "TypeScript con tsconfig.json en raíz y cada paquete tiene su propio tsconfig.json",
+      "Vitest soporta TypeScript de forma nativa sin transpilación extra",
+      "Usar vitest.config.ts en el root para configuración compartida, y en cada paquete para overrides específicos"
+    ],
+    "constraints": [
+      "No usar Jest, solo Vitest",
+      "No cambiar la estructura de carpetas src/ existente",
+      "Los tests deben ubicarse en src/__tests__/ dentro de cada paquete",
+      "No modificar los archivos de código fuente, solo agregar configuración y tests"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Instalar Vitest y dependencias de testing en el workspace root",
+      "command": "npm install -D vitest @vitest/coverage-v8 --save-exact",
+      "detail": "Instalar en la raíz del monorepo para que todos los paquetes lo compartan. @vitest/coverage-v8 provee cobertura de código."
+    },
+    {
+      "order": 2,
+      "action": "Crear vitest.config.ts en la raíz del monorepo",
+      "file": "vitest.config.ts",
+      "detail": "Configuración base compartida:\n\nimport { defineConfig } from 'vitest/config';\n\nexport default defineConfig({\n  test: {\n    globals: true,\n    environment: 'node',\n    coverage: {\n      provider: 'v8',\n      reporter: ['text', 'json', 'html'],\n      exclude: ['**/dist/**', '**/node_modules/**']\n    }\n  }\n});"
+    },
+    {
+      "order": 3,
+      "action": "Actualizar scripts en el package.json raíz",
+      "file": "package.json",
+      "detail": "Reemplazar el script 'test' actual y agregar 'test:coverage':\n\n\"scripts\": {\n  \"build\": \"npm run build --workspaces --if-present\",\n  \"clean\": \"npm run clean --workspaces --if-present\",\n  \"test\": \"vitest run\",\n  \"test:watch\": \"vitest\",\n  \"test:coverage\": \"vitest run --coverage\"\n}"
+    },
+    {
+      "order": 4,
+      "action": "Actualizar package.json de context-core con script de test",
+      "file": "packages/context-core/package.json",
+      "detail": "Agregar al bloque 'scripts':\n\"test\": \"vitest run\",\n\"test:watch\": \"vitest\""
+    },
+    {
+      "order": 5,
+      "action": "Crear tests unitarios para ContextEngine",
+      "file": "packages/context-core/src/__tests__/engine.test.ts",
+      "detail": "Cubrir los casos principales:\n- addSource() registra fuentes correctamente\n- collectContext() llama collect() de cada fuente\n- collectContext() maneja errores de fuentes sin romper todo el flujo\n- toJSON() retorna JSON válido con contextSpecVersion\n- toMarkdown() retorna string con secciones esperadas\n\nUsar vi.fn() y mock de ContextSource para no depender del filesystem."
+    },
+    {
+      "order": 6,
+      "action": "Crear tests unitarios para GenericFsAdapter",
+      "file": "packages/context-adapter-generic-fs/src/__tests__/adapter.test.ts",
+      "detail": "Cubrir:\n- getName() retorna 'GenericFsAdapter'\n- collect() retorna ContextData con type 'filesystem'\n- La estructura escaneada respeta maxDepth\n- Los patrones en ignorePatterns son excluidos\n- El timestamp en el output es una fecha ISO válida\n\nUsar un directorio temporal de test (import { tmpdir } from 'os') o mock de fs.promises."
+    },
+    {
+      "order": 7,
+      "action": "Verificar que todos los tests pasan",
+      "command": "npm test",
+      "detail": "Correr desde el root. Todos los tests deben pasar con 0 errores. Si hay fallos de TypeScript, ajustar tsconfig para incluir los archivos __tests__."
+    }
+  ],
+  "acceptance_criteria": [
+    "El comando 'npm test' en la raíz ejecuta todos los tests y termina con exit code 0",
+    "El comando 'npm run test:coverage' genera un reporte de cobertura en coverage/",
+    "Existe al menos 5 tests en packages/context-core/src/__tests__/engine.test.ts",
+    "Existe al menos 3 tests en packages/context-adapter-generic-fs/src/__tests__/adapter.test.ts",
+    "Ningún test usa console.log para verificar resultados (usar expect())",
+    "TypeScript no reporta errores en los archivos de test"
+  ],
+  "agent_instructions": {
+    "general": "Lee todos los archivos en context.files_to_read antes de comenzar. Los tests deben ser deterministas y no depender de archivos reales del proyecto.",
+    "claude_code": "Usa Read para leer engine.ts y adapter.ts completos antes de escribir tests. Después de crear los archivos, ejecuta 'npm test' con Bash para verificar. Si TypeScript falla en los tests, revisa que el tsconfig de cada paquete incluya src/__tests__/ en el campo 'include'.",
+    "copilot": "Abre engine.ts y adapter.ts en el editor antes de pedirle a Copilot que genere los tests. Usa @workspace para que Copilot tenga contexto completo del monorepo.",
+    "codex": "Provee el contenido completo de engine.ts, adapter.ts, y los package.json como contexto. Pide primero el vitest.config.ts y luego los archivos de test por separado."
+  },
+  "outputs": [
+    "vitest.config.ts (nuevo en root)",
+    "package.json (actualizado: scripts test, test:watch, test:coverage)",
+    "packages/context-core/package.json (actualizado: scripts test)",
+    "packages/context-adapter-generic-fs/package.json (actualizado: scripts test)",
+    "packages/context-core/src/__tests__/engine.test.ts (nuevo)",
+    "packages/context-adapter-generic-fs/src/__tests__/adapter.test.ts (nuevo)"
+  ]
+}

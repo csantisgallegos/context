@@ -1,0 +1,110 @@
+{
+  "$schema": "../schema.json",
+  "id": "p4-t03",
+  "title": "Método toAgentManifest(): manifiesto JSON para coordinación multi-agente",
+  "description": "Agregar el método toAgentManifest() a ContextEngine que genera un manifiesto JSON estructurado para la coordinación de múltiples agentes IA trabajando sobre el mismo proyecto. El manifiesto define: el contexto compartido del proyecto, los agentes registrados con sus roles y capacidades, las restricciones de cada agente, y el estado de compliance. Es el contrato base para arquitecturas multi-agente.",
+  "phase": 4,
+  "version_target": "0.5.0",
+  "priority": "high",
+  "status": "pending",
+  "estimated_effort": "medium",
+  "tags": ["output", "multi-agent", "manifest", "orchestration", "json"],
+  "iso_alignment": [
+    "ISO/IEC 25010 - Interoperability",
+    "ISO/IEC/IEEE 12207 - Software Integration Process"
+  ],
+  "dependencies": ["p1-t02", "p1-t03", "p4-t01"],
+  "context": {
+    "why": "En arquitecturas multi-agente, necesitas un contrato explícito que defina qué puede hacer cada agente y sobre qué partes del proyecto. El AgentManifest es ese contrato: un agente de seguridad solo debería poder revisar código pero no modificarlo; un agente de documentación solo debería tocar archivos .md; etc. Este manifiesto permite que un orquestador humano o automático distribuya tareas de forma segura y coordinada.",
+    "current_state": "Los tipos AgentProfile y AgentCapability existen desde p1-t02. ContextEngine tiene setAgent() para un único agente. Para multi-agente necesitamos poder registrar múltiples agentes y generar el manifiesto de todos ellos.",
+    "files_to_read": [
+      "packages/context-core/src/engine.ts",
+      "packages/context-core/src/types.ts"
+    ],
+    "key_concepts": [
+      "AgentManifest: documento JSON con version, projectContext, agents[], complianceSnapshot, generatedAt",
+      "Un agente en el manifiesto tiene: profile (AgentProfile), scope (qué puede tocar), restrictions (qué no puede hacer), contextFilter (qué parte del contexto recibe)",
+      "El 'scope' de un agente se define por: file patterns (globs), context types, capabilties permitidas",
+      "El manifiesto es immutable una vez generado: representa el estado en el momento de la generación",
+      "Compatibilidad con frameworks de agentes: el JSON debe ser parseable sin la librería instalada",
+      "Version del manifiesto: '1.0.0' para identificar el schema"
+    ],
+    "constraints": [
+      "El JSON resultante debe ser válido y parseable con JSON.parse() nativo",
+      "No incluir funciones ni referencias circulares en el output",
+      "Limitar el campo 'contextSnapshot' a un resumen, no incluir el filesystem tree completo",
+      "El manifiesto debe tener un campo 'manifestVersion' para versionado del schema",
+      "No incluir datos PII ni secrets en el manifiesto"
+    ]
+  },
+  "steps": [
+    {
+      "order": 1,
+      "action": "Definir los tipos del manifiesto en types.ts",
+      "file": "packages/context-core/src/types.ts",
+      "detail": "Agregar al final de types.ts:\n\nexport interface AgentScope {\n  filePatterns?: string[];         // globs de archivos que puede tocar\n  contextTypes?: string[];         // tipos de contexto que recibe\n  capabilities: AgentCapability[]; // capacidades permitidas en este scope\n}\n\nexport interface AgentManifestEntry {\n  profile: AgentProfile;\n  scope: AgentScope;\n  restrictions?: string[];         // reglas explícitas de lo que NO puede hacer\n  contextFilter?: ContextPriority; // prioridad mínima de contexto que recibe\n}\n\nexport interface ProjectContextSnapshot {\n  name: string | null;\n  version: string | null;\n  primaryFramework: string | null;\n  language: string;\n  branch: string | null;\n  hasTests: boolean;\n  hasLinting: boolean;\n}\n\nexport interface AgentManifest {\n  manifestVersion: '1.0.0';\n  generatedAt: string;\n  projectRoot: string;\n  projectContext: ProjectContextSnapshot;\n  agents: AgentManifestEntry[];\n  complianceScore?: number;           // 0-100, si hay complianceReport\n  criticalIssueCount?: number;\n  contextSpecVersion: string;\n}"
+    },
+    {
+      "order": 2,
+      "action": "Agregar soporte multi-agente a ContextEngine",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "Agregar un registro de múltiples agentes junto al agente principal:\n\nprivate agents: AgentManifestEntry[] = [];\n\naddAgent(entry: AgentManifestEntry): void {\n  this.agents.push(entry);\n  // Si solo hay un agente, también lo setea como el agent principal del output\n  if (this.agents.length === 1) {\n    this.agent = entry.profile;\n  }\n}\n\nNOTA: setAgent() sigue funcionando para el caso simple de un solo agente."
+    },
+    {
+      "order": 3,
+      "action": "Implementar helper buildProjectSnapshot()",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "Función privada que extrae los datos clave del output para el snapshot:\n\nprivate buildProjectSnapshot(output: ContextOutput): ProjectContextSnapshot {\n  const pkg = output.contexts.find(c => c.type === 'package-json')?.data;\n  const git = output.contexts.find(c => c.type === 'git')?.data;\n  const stack = (pkg as any)?.stack;\n\n  return {\n    name: (pkg as any)?.name ?? null,\n    version: (pkg as any)?.version ?? null,\n    primaryFramework: stack?.primaryFramework ?? null,\n    language: stack?.language ?? 'unknown',\n    branch: (git as any)?.currentBranch ?? null,\n    hasTests: stack?.hasTests ?? false,\n    hasLinting: stack?.hasLinting ?? false,\n  };\n}"
+    },
+    {
+      "order": 4,
+      "action": "Implementar toAgentManifest()",
+      "file": "packages/context-core/src/engine.ts",
+      "detail": "async toAgentManifest(): Promise<AgentManifest> {\n  const output = await this.collectContext();\n  const projectContext = this.buildProjectSnapshot(output);\n\n  return {\n    manifestVersion: '1.0.0',\n    generatedAt: new Date().toISOString(),\n    projectRoot: process.cwd(), // o el root del proyecto si está disponible\n    projectContext,\n    agents: this.agents,\n    complianceScore: output.complianceReport?.overallScore,\n    criticalIssueCount: output.complianceReport?.criticalIssues?.length,\n    contextSpecVersion: this.specVersion,\n  };\n}\n\nAgregar también:\nasync toAgentManifestJSON(): Promise<string> {\n  return JSON.stringify(await this.toAgentManifest(), null, 2);\n}"
+    },
+    {
+      "order": 5,
+      "action": "Exportar los nuevos tipos desde index.ts",
+      "file": "packages/context-core/src/index.ts",
+      "detail": "Agregar:\nexport type {\n  AgentScope,\n  AgentManifestEntry,\n  ProjectContextSnapshot,\n  AgentManifest,\n} from './types';"
+    },
+    {
+      "order": 6,
+      "action": "Agregar comando generate-manifest al CLI",
+      "file": "packages/context-cli/src/commands/scan.ts",
+      "detail": "Opcional: agregar al output del scan la generación de agent-manifest.json:\n\nconst manifest = await engine.toAgentManifestJSON();\nconst manifestPath = path.join(outputDir, 'agent-manifest.json');\nfs.writeFileSync(manifestPath, manifest, 'utf-8');\nconsole.log(`✓ Agent manifest written to: ${manifestPath}`);"
+    },
+    {
+      "order": 7,
+      "action": "Agregar tests para toAgentManifest() y addAgent()",
+      "file": "packages/context-core/src/__tests__/engine.test.ts",
+      "detail": "Tests:\n- addAgent() registra el agente en el manifiesto\n- toAgentManifest() retorna objeto con manifestVersion='1.0.0'\n- El JSON generado es válido (JSON.parse(JSON.stringify(manifest)) no lanza error)\n- Múltiples agentes se listan correctamente en agents[]\n- complianceScore es undefined cuando no hay complianceReport\n- El projectContext tiene los campos esperados"
+    },
+    {
+      "order": 8,
+      "action": "Verificar build y tests",
+      "command": "npm run build && npm test"
+    }
+  ],
+  "acceptance_criteria": [
+    "AgentManifest, AgentManifestEntry, AgentScope, ProjectContextSnapshot están exportados",
+    "addAgent() permite registrar múltiples agentes",
+    "toAgentManifest() retorna un objeto JavaScript válido",
+    "toAgentManifestJSON() retorna JSON parseable con JSON.parse()",
+    "El campo manifestVersion siempre es '1.0.0'",
+    "npm run build y npm test pasan sin errores"
+  ],
+  "agent_instructions": {
+    "general": "El AgentManifest es un contrato de coordinación. Diseñarlo para que sea legible por un humano sin conocer la librería. Los campos deben ser self-explanatory. Evitar abreviaciones en las keys del JSON.",
+    "claude_code": "Implementa los tipos en types.ts primero. Luego agrega addAgent() al engine, luego toAgentManifest(). Prueba con console.log el JSON resultante antes de los tests formales para verificar que es legible.",
+    "copilot": "Mantén types.ts y engine.ts abiertos. Asegúrate de que AgentManifestEntry incluye el AgentScope que restringe qué puede hacer el agente.",
+    "codex": "Provee AgentProfile, AgentCapability y ContextOutput como contexto. Implementa los tipos del manifiesto primero, luego los métodos del engine. Verifica que el JSON no tiene referencias circulares."
+  },
+  "outputs": [
+    "packages/context-core/src/types.ts (modificado: AgentScope, AgentManifestEntry, ProjectContextSnapshot, AgentManifest)",
+    "packages/context-core/src/engine.ts (modificado: addAgent(), buildProjectSnapshot(), toAgentManifest(), toAgentManifestJSON())",
+    "packages/context-core/src/index.ts (modificado: exportar nuevos tipos)",
+    "packages/context-cli/src/commands/scan.ts (modificado: generar agent-manifest.json)",
+    "packages/context-core/src/__tests__/engine.test.ts (modificado: tests del manifiesto)"
+  ]
+}
